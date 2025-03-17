@@ -17,8 +17,8 @@ from torch.nn.utils.rnn import pad_sequence
 class BlendedMVS(Dataset):
    def __init__(self, data_path, subset=1):
       self.data_path = Path(data_path)
-      self.subset = subset
       all_object_paths = sorted(list(self.data_path.iterdir()))
+      self.subset = subset
       self.length = int(len(all_object_paths) * self.subset)
       self.object_paths = all_object_paths[:self.length]
       pil_to_tensor = T.Compose([
@@ -52,7 +52,7 @@ class BlendedMVS(Dataset):
             depth_map = load_pfm(str(depth_map_path))
             depth_map = depth_map_to_tensor(depth_map)
             depth_maps.append(depth_map)
-         depth_maps = torch.stack(depth_maps, axis=0) # (T, 3, 112, 112)
+         depth_maps = torch.stack(depth_maps, axis=0) # (T, 1, 112, 112)
          object_depth_maps.append(depth_maps)
 
       self.object_images = object_images
