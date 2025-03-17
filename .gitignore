@@ -1,2 +1,5 @@
 # Data
 data/
+.vscode
+*/__pycache__
+.pytest_cache
