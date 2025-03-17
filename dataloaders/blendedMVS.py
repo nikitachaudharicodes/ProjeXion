@@ -11,6 +11,8 @@ from pathlib import Path
 from tqdm import tqdm
 from PIL import Image
 import torchvision.transforms.v2 as T
+from typing import List, Tuple
+from torch.nn.utils.rnn import pad_sequence
 
 class BlendedMVS(Dataset):
    def __init__(self, data_path, subset=1):
@@ -61,3 +63,14 @@ class BlendedMVS(Dataset):
    
    def __getitem__(self, index):
       return self.object_images[index], self.object_depth_maps[index]
+   
+   def collate_fn(self, batch: List[Tuple[torch.Tensor, torch.Tensor]]):
+      # Extract batch of input images and batch of output depth maps separately
+      batch_images, batch_depth_maps = list(zip(*batch))
+      # Store original lengths
+      lengths_images = torch.tensor([image_sequence.shape[0] for image_sequence in batch_images])
+      lengths_depth_maps = torch.tensor([depth_map_sequence.shape[0] for depth_map_sequence in batch_depth_maps])
+      # Pad the sequences
+      batch_images_padded = pad_sequence(batch_images, batch_first=True)
+      batch_depth_maps_padded = pad_sequence(batch_depth_maps, batch_first=True)
+      return batch_images_padded, batch_depth_maps_padded, lengths_images, lengths_depth_maps
