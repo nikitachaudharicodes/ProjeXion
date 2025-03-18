@@ -32,19 +32,26 @@ def compute_depth_metrics(pred, gt, mask):
         "δ < 1.25³": threshold_metric(pred, gt, mask, 1.25 ** 3).item(),
     }
 
-# 3D Point Cloud Metrics 
-# def chamfer_distance(pred_points, gt_points):
-#    pred_pcd = o3d.geometry.PointCloud()
-#    pred_pcd.points = o3d.utility.Vector3dVector(pred_points)
-
-#    gt_pcd = o3d.geometry.PointCloud()
-#    gt_pcd.points = o3d.utility.Vector3dVector(gt_points)
-
-#    dist1 = np.asarray(pred_pcd.compute_point_cloud_distance(gt_pcd))
-#    dist2 = np.asarray(gt_pcd.compute_point_cloud_distance(pred_pcd))
-
-#    # might want to experiment after squaring the distances, the formula does it, most implementations dont
-#    return np.mean(dist1) + np.mean(dist2)
 
 def evaluate_model(model, val_loader, metrics_fn) -> dict:
-   pass
+   model.eval()
+   device = next(model.parameters()).device
+   depth_metrics_total = []
+
+   with torch.no_grad():
+       for batch_images_padded, batch_depth_maps_padded, lengths_images, lengths_depth_maps in tqdm(val_loader, desc="Evaluating"):
+            batch_images_padded = batch_images_padded.to(device)
+            batch_depth_maps_padded = batch_depth_maps_padded.to(device)
+
+            pred_depths = model(batch_images_padded)  
+            for i in range(len(batch_images_padded)):
+               pred = pred_depths[i][: lengths_depth_maps[i]]  
+               gt = batch_depth_maps_padded[i][: lengths_depth_maps[i]]  
+                
+               mask = gt > 0  # Define a valid depth mask (assuming no negative depths)
+               metrics = metrics_fn(pred, gt, mask)
+               depth_metrics_total.append(metrics)
+   
+   avg_metrics = {key: np.mean([m[key] for m in depth_metrics_total]) for key in depth_metrics_total[0]}
+
+   return avg_metrics
