@@ -5,3 +5,4 @@ data/
 .pytest_cache/*
 */__pycache__/*
 *.pytest_cache/*
+dataset_low_res/
