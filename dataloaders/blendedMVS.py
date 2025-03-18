@@ -15,8 +15,8 @@ from typing import List, Tuple
 from torch.nn.utils.rnn import pad_sequence
 
 class BlendedMVS(Dataset):
-   def __init__(self, data_path, subset=1, partition='train', seed=42):
-      assert partition in ['train', 'val', 'test'], "Parition must be 'train', 'val', or 'test'"
+   def __init__(self, data_path, subset=1, partition='train'):
+      assert partition in ['train', 'val', 'test'], "Partition must be 'train', 'val', or 'test'"
       self.data_path = Path(data_path)
       list_file = self.data_path / f"{partition}_list.txt"
       assert list_file.exists(), f"File {list_file} does not exist"
