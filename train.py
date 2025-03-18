@@ -1,15 +1,20 @@
+from numpy import dtype
 import torch
+import losses
 from models import ResNet6
 from tqdm import tqdm
 from dataloaders import BlendedMVS
 from torch.utils.data import DataLoader
 from evaluation import evaluate_model
 from argparse import ArgumentParser
+import numpy as np
+
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def main(data_path: str, subset: float, batch_size: int, model: str, epochs: int, lr: float, optimizer: str, scheduler: str):
    # Model
    if model == 'cnn':
-      model = ResNet6()
+      model = ResNet6().to(DEVICE)
    else:
       error_msg = f"Model {model} is not a valid model name"
       raise ValueError(error_msg)
@@ -23,7 +28,7 @@ def main(data_path: str, subset: float, batch_size: int, model: str, epochs: int
       scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
          optimizer=optimizer, mode='min', factor=0.1, patience=1
       )
-   elif scheduler == 'ReduceLROnPlateu':
+   elif scheduler == 'ExponentialLR':
       scheduler = torch.optim.lr_scheduler.ExponentialLR(
          optimizer=optimizer, gamma=0.8
       )
@@ -33,15 +38,21 @@ def main(data_path: str, subset: float, batch_size: int, model: str, epochs: int
       )
    scaler = torch.GradScaler(DEVICE)
 
-   train_dataset = BlendedMVS(data_path=data_path, subset=subset)
+   train_dataset = BlendedMVS(data_path=data_path, subset=subset, partition='train')
    train_loader = DataLoader(
       dataset=train_dataset, batch_size=batch_size, collate_fn=train_dataset.collate_fn
+   )
+   val_dataset = BlendedMVS(data_path=data_path, subset=subset, partition='val')
+   train_loader = DataLoader(
+      dataset=val_dataset, batch_size=batch_size, collate_fn=train_dataset.collate_fn
    )
 
    # TODO: Add wandb to restart training
    last_epoch_completed = 0
    best_lev_dist = float("inf")
 
+   train_losses = []
+   val_losses = []
    for epoch in range(last_epoch_completed, epochs):
 
       print("\nEpoch: {}/{}".format(epoch + 1, epochs))
@@ -65,6 +76,12 @@ def main(data_path: str, subset: float, batch_size: int, model: str, epochs: int
       #    best_lev_dist = valid_dist
       #    save_model(model, optimizer, scheduler, ['valid_dist', valid_dist], epoch, best_model_path)
       #    print("Saved best val model")
+      train_losses.append(train_loss)
+      val_losses.append(valid_loss)
+   with open('losses.txt', 'w') as f:
+      f.write('train,valid\n')
+      f.writelines([f'{train_loss},{val_loss}\n' for train_loss, val_loss in zip(train_losses, val_losses)])
+
    save_model(model, optimizer, scheduler, valid_metrics, epoch, 'checkpoints')
    print("Saved last model")
 
@@ -78,13 +95,12 @@ def train_model(model, train_loader, criterion, optimizer, scaler):
       optimizer.zero_grad()
 
       x, y, lx, ly = data
-      x, y = x.to(device), y.to(device)
-      lx, ly = lx.to(device), ly.to(device)
+      x, y = x.to(DEVICE), y.to(DEVICE)
+      lx, ly = lx.to(DEVICE), ly.to(DEVICE)
 
-      with torch.autocast(device):
+      with torch.autocast(DEVICE):
          h, lh = model(x, lx)
-         h = torch.permute(h, (1, 0, 2))
-         loss = criterion(h, y, lh, ly)
+         loss = criterion(h, y)
 
       total_loss += loss.item()
 
@@ -108,7 +124,7 @@ def train_model(model, train_loader, criterion, optimizer, scaler):
 def save_model(model, optimizer, scheduler, metrics, epoch, path):
    torch.save(
       {
-         'model_state_dict'        : model.state_dict(),
+         'model_state_dict'         : model.state_dict(),
          'optimizer_state_dict'     : optimizer.state_dict() if optimizer is not None else {},
          'scheduler_state_dict'     : scheduler.state_dict() if scheduler is not None else {},
          'metrics'                  : metrics,
@@ -118,8 +134,23 @@ def save_model(model, optimizer, scheduler, metrics, epoch, path):
    )
 
 if __name__ == '__main__':
-   DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
    parser = ArgumentParser()
-   parser.add_argument('pfm_file')
+   parser.add_argument('data_path', type=str)
+   parser.add_argument('subset', type=float)
+   parser.add_argument('batch_size', type=int)
+   parser.add_argument('model', type=str)
+   parser.add_argument('epochs', type=int)
+   parser.add_argument('lr', type=float)
+   parser.add_argument('optimizer', type=str)
+   parser.add_argument('scheduler', type=str)
    args = parser.parse_args()
-   main()
+   main(
+      data_path=args.data_path, 
+      subset=args.subset, 
+      batch_size=args.batch_size, 
+      model=args.model, 
+      epochs=args.epochs, 
+      lr=args.lr, 
+      optimizer=args.optimizer, 
+      scheduler=args.scheduler
+   )

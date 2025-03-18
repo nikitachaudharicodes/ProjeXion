@@ -1,1 +1,1 @@
-from resnet import ResNet6
+from .resnet import ResNet6
