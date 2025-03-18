@@ -1,1 +1,1 @@
-from blendedMVS import BlendedMVS
+from .blendedMVS import BlendedMVS

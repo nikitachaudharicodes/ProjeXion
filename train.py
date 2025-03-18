@@ -33,7 +33,7 @@ def main(data_path: str, subset: float, batch_size: int, model: str, epochs: int
       )
    scaler = torch.GradScaler(DEVICE)
 
-   train_dataset = BlendedMVS(data_path=data_path, subset=subset)
+   train_dataset = BlendedMVS(data_path=data_path, subset=subset, partition='train')
    train_loader = DataLoader(
       dataset=train_dataset, batch_size=batch_size, collate_fn=train_dataset.collate_fn
    )
