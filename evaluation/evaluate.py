@@ -1,3 +1,4 @@
+from typing import Dict, List
 import torch
 import numpy as np 
 import open3d as o3d 
@@ -36,32 +37,33 @@ def compute_depth_metrics(pred, gt, mask):
         "δ < 1.25³": threshold_metric(pred, gt, mask, 1.25 ** 3).item(),
     }
 
-
-def evaluate_model(model, val_loader, metrics_fn) -> dict:
+@torch.inference_mode()
+def evaluate_model(model, val_loader, criterion):
    model.eval() #set eval mode
    device = next(model.parameters()).device
    depth_metrics_total = []
-
+   val_loss = 0
    with torch.no_grad():
        for batch_images_padded, batch_depth_maps_padded, lengths_images, lengths_depth_maps in tqdm(val_loader, desc="Evaluating"):
             batch_images_padded = batch_images_padded.to(device)
             batch_depth_maps_padded = batch_depth_maps_padded.to(device)
 
-            pred_depths = model(batch_images_padded)  #forward pass
-
+            pred_depths, pred_lens = model(batch_images_padded, lengths_images)  #forward pass
+            val_loss += criterion(pred_depths, batch_depth_maps_padded)
             for i in range(len(batch_images_padded)): 
 
                pred = pred_depths[i][: lengths_depth_maps[i]]  
                gt = batch_depth_maps_padded[i][: lengths_depth_maps[i]]  
                 
                mask = gt > 0  # Define a valid depth mask (assuming no negative depths)
-               metrics = metrics_fn(pred, gt, mask)
+               metrics = compute_depth_metrics(pred, gt, mask)
                depth_metrics_total.append(metrics)
    
    #avg across all batches
+   val_loss /= len(val_loader)
    avg_metrics = {key: np.mean([m[key] for m in depth_metrics_total]) for key in depth_metrics_total[0]}
 
-   return avg_metrics
+   return val_loss.item(), avg_metrics
 
 
 
