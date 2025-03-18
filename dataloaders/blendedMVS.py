@@ -15,12 +15,20 @@ from typing import List, Tuple
 from torch.nn.utils.rnn import pad_sequence
 
 class BlendedMVS(Dataset):
-   def __init__(self, data_path, subset=1):
+   def __init__(self, data_path, subset=1, partition='train', seed=42):
+      assert partition in ['train', 'val', 'test'], "Parition must be 'train', 'validation', or 'test'"
       self.data_path = Path(data_path)
-      all_object_paths = sorted(list(self.data_path.iterdir()))
+      list_file = self.data_path / f"{partition}_list.txt"
+      assert list_file.exists(), f"File {list_file} does not exist"
+      
+      with open(list_file, 'r') as f:
+         valid_objects = set(line.strip() for line in f.readlines())
+      
+      all_object_paths = sorted([p for p in self.data_path.iterdir() if p.is_dir() and p.name in valid_objects])
       self.subset = subset
       self.length = int(len(all_object_paths) * self.subset)
       self.object_paths = all_object_paths[:self.length]
+      
       pil_to_tensor = T.Compose([
          T.Resize((112, 112)),
          T.ToImage(),
@@ -32,9 +40,11 @@ class BlendedMVS(Dataset):
          T.Resize((112, 112)),
          T.ToDtype(torch.float32, scale=True),
       ])
+      
       object_images = []
       object_depth_maps = []
-      for object_path in tqdm(self.object_paths, desc="Loading images"):
+      
+      for object_path in tqdm(self.object_paths, desc=f"Loading {partition} images"):
          # Load images
          images_paths = sorted(list((object_path / 'blended_images').iterdir()))
          images = []
