@@ -99,13 +99,12 @@ def train_model(model, train_loader, criterion, optimizer, scaler):
    for i, data in enumerate(train_loader):
       optimizer.zero_grad()
 
-      x, y, lx, ly = data
+      x, y = data
       x, y = x.to(DEVICE), y.to(DEVICE)
-      lx, ly = lx.to(DEVICE), ly.to(DEVICE)
 
       with torch.autocast(DEVICE):
-         h, lh = model(x, lx)
-         loss = criterion(h, y)
+         y_pred = model(x)
+         loss = criterion(y_pred, y)
 
       total_loss += loss.item()
 
@@ -119,7 +118,7 @@ def train_model(model, train_loader, criterion, optimizer, scaler):
       scaler.step(optimizer) # This is a replacement for optimizer.step()
       scaler.update() # This is something added just for FP16
 
-      del x, y, lx, ly, h, lh, loss
+      del x, y, loss
       torch.cuda.empty_cache()
 
    batch_bar.close() # You need this to close the tqdm bar

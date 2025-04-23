@@ -10,12 +10,10 @@ class ResNet6(torch.nn.Module):
          ResNetBlock(16, 16, kernel_size=3, stride=1),
          torch.nn.Conv2d(16, 1, kernel_size=1, stride=1),
       )
-   def forward(self, X, lens):
-      B, T, C, H, W = X.shape
-      X = X.reshape((B * T, C, H, W))
+   def forward(self, X):
+      X = X[:, 0, :, :, :]
       Z = self.model(X)
-      Z = Z.reshape((B, T, 1, H, W))
-      return Z, lens
+      return Z
    
 class ResNetBlock(torch.nn.Module):
    def __init__(self, in_channels, out_channels, kernel_size, stride):
