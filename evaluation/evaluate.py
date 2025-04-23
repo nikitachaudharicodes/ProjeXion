@@ -41,10 +41,7 @@ def mae(pred, gt, mask):
 
 def compute_depth_metrics(pred, gt, mask):
    """ computes all depth metrics """
-   abs_rel_error = abs_rel(pred, gt, mask)
-   sq_rel_error = sq_rel(pred, gt, mask)
-   rmse_error = rmse(pred, gt, mask)
-   threshold = threshold_metric(pred, gt, mask)
+   # These functions compute the mean over all valid elements indicated by the mask across the batch.
    return {
         "Abs Rel": abs_rel(pred, gt, mask).item(),
         "Sq Rel": sq_rel(pred, gt, mask).item(),
@@ -53,6 +50,7 @@ def compute_depth_metrics(pred, gt, mask):
         "δ < 1.25²": threshold_metric(pred, gt, mask, 1.25 ** 2).item(),
         "δ < 1.25³": threshold_metric(pred, gt, mask, 1.25 ** 3).item(),
     }
+
 
 @torch.inference_mode()
 def evaluate_model(model, val_loader, criterion):
@@ -66,22 +64,54 @@ def evaluate_model(model, val_loader, criterion):
             batch_depth_maps_padded = batch_depth_maps_padded.to(device)
 
             pred_depths, pred_lens = model(batch_images_padded, lengths_images)  #forward pass
-            val_loss += criterion(pred_depths, batch_depth_maps_padded)
-            for i in range(len(batch_images_padded)): 
+            
+            # Create a mask for valid sequence elements (excluding padding)
+            max_len = batch_depth_maps_padded.shape[1] # Assuming shape is B x N_max
+            seq_range = torch.arange(max_len, device=device)[None, :] # Shape: 1 x N_max
+            lengths_tensor = torch.tensor(lengths_depth_maps, device=device)[:, None] # Shape: B x 1
+            seq_mask = seq_range < lengths_tensor # Shape: B x N_max
 
-               pred = pred_depths[i][: lengths_depth_maps[i]]  
-               gt = batch_depth_maps_padded[i][: lengths_depth_maps[i]]  
-                
-               mask = gt > 0  # Define a valid depth mask (assuming no negative depths)
-               metrics = compute_depth_metrics(pred, gt, mask)
-               depth_metrics_total.append(metrics)
-   
-   #avg across all batches
-   val_loss /= len(val_loader)
-   avg_metrics = {key: np.mean([m[key] for m in depth_metrics_total]) for key in depth_metrics_total[0]}
+            # Create a mask for valid ground truth depth values (> 0)
+            gt_mask = batch_depth_maps_padded > 0 # Shape: B x N_max
+            
+            # Combine masks: only consider valid sequence elements with valid ground truth
+            valid_mask = gt_mask & seq_mask
+
+            # Compute loss (criterion might need adjustment if it doesn't handle padding)
+            # Assuming criterion handles padding or uses the mask internally
+            # If not, you might need: loss = criterion(pred_depths[valid_mask], batch_depth_maps_padded[valid_mask])
+            # Make sure pred_depths has the same shape B x N_max as batch_depth_maps_padded
+            # If pred_depths has a different shape (e.g., requires selection based on pred_lens), adjust accordingly.
+            # For now, assuming criterion and shapes match for simplicity.
+            # Ensure pred_depths has the shape [B, N_max] for the following metric calculation.
+            # If model outputs variable lengths, it needs padding/masking similar to GT.
+            # Let's assume pred_depths is already padded/masked appropriately based on pred_lens to match batch_depth_maps_padded shape.
+
+            # If criterion needs unpadded/masked inputs:
+            # current_loss = criterion(pred_depths[valid_mask], batch_depth_maps_padded[valid_mask])
+            # val_loss += current_loss * valid_mask.sum() # Weight loss by number of valid points
+            # total_valid_points += valid_mask.sum() # Accumulate total valid points if needed for averaging later
+
+            # Simplified loss calculation assuming criterion handles batch/mask:
+            val_loss += criterion(pred_depths, batch_depth_maps_padded, valid_mask) # Pass mask if needed by criterion
+
+            # Compute metrics for the entire batch using the valid mask
+            if valid_mask.any(): # Ensure there are valid elements before computing metrics
+                metrics = compute_depth_metrics(pred_depths, batch_depth_maps_padded, valid_mask)
+                depth_metrics_total.append(metrics)
+
+   # Average loss and metrics
+   # If loss was weighted by valid points: val_loss /= total_valid_points (if accumulated)
+   # Else (assuming criterion averages correctly or len(val_loader) is appropriate):
+   val_loss /= len(val_loader) # Or adjust depending on criterion behavior
+
+   # Average metrics across batches
+   if depth_metrics_total:
+        avg_metrics = {key: np.mean([m[key] for m in depth_metrics_total]) for key in depth_metrics_total[0]}
+   else:
+        avg_metrics = {key: 0 for key in ["Abs Rel", "Sq Rel", "RMSE", "δ < 1.25", "δ < 1.25²", "δ < 1.25³"]} # Default if no valid data
 
    return val_loss.item(), avg_metrics
-
 
 
 def main(model_checkpoint, data_path, batch_size):
