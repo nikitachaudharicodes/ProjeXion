@@ -3,31 +3,56 @@ Creates an iterator over the BlendedMVS dataset that returns a
 sequence of images (features) and depth maps (target)
 """
 
+import random
 from torch.utils.data import Dataset
 import torch
 import numpy as np
-from utils import load_pfm
+from utils import load_pfm, parse_pairs
 from pathlib import Path
 from tqdm import tqdm
 from PIL import Image
 import torchvision.transforms.v2 as T
-from typing import List, Tuple
+from typing import List, Literal, Tuple
 from torch.nn.utils.rnn import pad_sequence
+from math import ceil
 
 class BlendedMVS(Dataset):
-   def __init__(self, data_path, subset=1, partition='train'):
-      assert partition in ['train', 'val', 'test'], "Partition must be 'train', 'val', or 'test'"
+   def __init__(self,
+                data_path:str,
+                subset:float=1,
+                partition:Literal['train', 'val', 'test']='train',
+                context_size:int=0):
+      """
+      :param str data_path: Path to directory with all examples
+      :param float subset: Fraction of the data points in the partition to use
+      :param str partition: Partition of the data to load
+      :param int context_size: Number of images to include in addition to the reference image 
+      """
+      # Check input
       self.data_path = Path(data_path)
+      assert self.data_path.exists()
+      assert partition in ['train', 'val', 'test'], "Partition must be 'train', 'val', or 'test'"
       list_file = self.data_path / f"{partition}_list.txt"
       assert list_file.exists(), f"File {list_file} does not exist"
-      
+      assert 0 < subset <= 1, f"Subset value should be between (0, 1]"
+
+      # Store configuration
+      self.context_size = context_size
+
+      # Parse list file
       with open(list_file, 'r') as f:
          valid_objects = set(line.strip() for line in f.readlines())
+      assert valid_objects, f"{list_file} was empty"
       
+      # Filter objects in the partition
       all_object_paths = sorted([p for p in self.data_path.iterdir() if p.is_dir() and p.name in valid_objects])
+      assert len(all_object_paths) == len(valid_objects), f"Only found {len(all_object_paths)} of the {len(valid_objects)} present in {list_file}"
+      
+      # Subset the data
       self.subset = subset
-      self.length = int(len(all_object_paths) * self.subset)
+      self.length = ceil(len(all_object_paths) * self.subset)
       self.object_paths = all_object_paths[:self.length]
+      assert len(self.object_paths) > 0, f"Kept {len(self.object_paths)} after applying the subset factor. At least 1 example should be retained"
       
       pil_to_tensor = T.Compose([
          T.Resize((112, 112)),
@@ -43,7 +68,7 @@ class BlendedMVS(Dataset):
       
       object_images = []
       object_depth_maps = []
-      
+      object_image_pairs = []
       for object_path in tqdm(self.object_paths, desc=f"Loading {partition} images"):
          # Load images
          images_paths = sorted(list((object_path / 'blended_images').iterdir()))
@@ -65,22 +90,39 @@ class BlendedMVS(Dataset):
          depth_maps = torch.stack(depth_maps, axis=0) # (T, 1, 112, 112)
          object_depth_maps.append(depth_maps)
 
+         # Load context IDs
+         pairs_paths = (object_path / 'cams' / 'pair.txt')
+         image_pairs = parse_pairs(pairs_path=pairs_paths)
+         object_image_pairs.append(image_pairs)
+
+      assert len(object_images) == len(object_depth_maps) == len(object_image_pairs) == self.length
+      self.object_image_pairs = object_image_pairs
       self.object_images = object_images
       self.object_depth_maps = object_depth_maps
 
    def __len__(self):
       return self.length
    
-   def __getitem__(self, index):
-      return self.object_images[index], self.object_depth_maps[index]
+   def __getitem__(self, object_index):
+      # Features
+      images = self.object_images[object_index]
+      reference_image_id = random.randint(0, len(images))
+      reference_image = images[reference_image_id]
+      context_image_ids = self.object_image_pairs[object_index][reference_image_id][:self.context_size]
+      context_images = [
+         images[pair_index]
+         for pair_index in context_image_ids
+      ]
+      ## The reference image will always be the first one
+      images = torch.stack([reference_image] + context_images)
+
+      # Target
+      depth_map = self.object_depth_maps[object_index][reference_image_id]
+      return images, depth_map
    
    def collate_fn(self, batch: List[Tuple[torch.Tensor, torch.Tensor]]):
       # Extract batch of input images and batch of output depth maps separately
       batch_images, batch_depth_maps = list(zip(*batch))
-      # Store original lengths
-      lengths_images = torch.tensor([image_sequence.shape[0] for image_sequence in batch_images])
-      lengths_depth_maps = torch.tensor([depth_map_sequence.shape[0] for depth_map_sequence in batch_depth_maps])
-      # Pad the sequences
-      batch_images_padded = pad_sequence(batch_images, batch_first=True)
-      batch_depth_maps_padded = pad_sequence(batch_depth_maps, batch_first=True)
-      return batch_images_padded, batch_depth_maps_padded, lengths_images, lengths_depth_maps
+      batch_images = torch.stack(batch_images)
+      batch_depth_maps = torch.stack(batch_depth_maps)
+      return batch_images, batch_depth_maps
