@@ -27,14 +27,17 @@ def compute_depth_metrics(pred, gt, mask):
    abs_rel_error = abs_rel(pred, gt, mask)
    sq_rel_error = sq_rel(pred, gt, mask)
    rmse_error = rmse(pred, gt, mask)
-   threshold = threshold_metric(pred, gt, mask)
+   threshold_metrics = [
+      threshold_metric(pred, gt, mask, threshold)
+      for threshold in [1.25, 1.25**2, 1.25**3]
+   ]
    return {
-        "Abs Rel": abs_rel(pred, gt, mask).item(),
-        "Sq Rel": sq_rel(pred, gt, mask).item(),
-        "RMSE": rmse(pred, gt, mask).item(),
-        "δ < 1.25": threshold_metric(pred, gt, mask, 1.25).item(),
-        "δ < 1.25²": threshold_metric(pred, gt, mask, 1.25 ** 2).item(),
-        "δ < 1.25³": threshold_metric(pred, gt, mask, 1.25 ** 3).item(),
+        "Abs Rel": abs_rel_error,
+        "Sq Rel": sq_rel_error,
+        "RMSE": rmse_error,
+        "δ < 1.25": threshold_metrics[0],
+        "δ < 1.25²": threshold_metrics[1],
+        "δ < 1.25³": threshold_metrics[2],
     }
 
 @torch.inference_mode()
@@ -44,24 +47,22 @@ def evaluate_model(model, val_loader, criterion):
    depth_metrics_total = []
    val_loss = 0
    with torch.no_grad():
-       for batch_images_padded, batch_depth_maps_padded, lengths_images, lengths_depth_maps in tqdm(val_loader, desc="Evaluating"):
-            batch_images_padded = batch_images_padded.to(device)
-            batch_depth_maps_padded = batch_depth_maps_padded.to(device)
-
-            pred_depths, pred_lens = model(batch_images_padded, lengths_images)  #forward pass
-            val_loss += criterion(pred_depths, batch_depth_maps_padded)
-            for i in range(len(batch_images_padded)): 
-
-               pred = pred_depths[i][: lengths_depth_maps[i]]  
-               gt = batch_depth_maps_padded[i][: lengths_depth_maps[i]]  
-                
-               mask = gt > 0  # Define a valid depth mask (assuming no negative depths)
+       for images, depth_maps in tqdm(val_loader, desc="Evaluating"):
+            images = images.to(device)
+            depth_maps = depth_maps.to(device)
+            pred_depths = model(images)  #forward pass
+            masks = depth_maps > 0  # Define a valid depth mask (assuming no negative depths)
+            val_loss += criterion(pred_depths, depth_maps)
+            for i in range(len(images)): 
+               pred = pred_depths[i]
+               gt = depth_maps[i]
+               mask = masks[i]
                metrics = compute_depth_metrics(pred, gt, mask)
                depth_metrics_total.append(metrics)
    
    #avg across all batches
    val_loss /= len(val_loader)
-   avg_metrics = {key: np.mean([m[key] for m in depth_metrics_total]) for key in depth_metrics_total[0]}
+   avg_metrics = {key: torch.mean(torch.tensor([m[key] for m in depth_metrics_total])) for key in depth_metrics_total[0]}
 
    return val_loss.item(), avg_metrics
 
