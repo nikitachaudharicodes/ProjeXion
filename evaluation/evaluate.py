@@ -22,6 +22,23 @@ def threshold_metric(pred, gt, mask, threshold=1.25):
    ratio = torch.max(pred[mask] / gt[mask], gt[mask] / pred[mask])
    return torch.mean((ratio < threshold).float())
 
+
+def rmse_log(pred, gt, mask):
+    """ Root mean squared error of the log-transformed depths """
+    log_pred = torch.log(pred[mask])
+    log_gt = torch.log(gt[mask])
+    return torch.sqrt(torch.mean((log_pred - log_gt) ** 2))
+
+def log10(pred, gt, mask):
+    """ Mean absolute error in log10 space """
+    log10_pred = torch.log10(pred[mask])
+    log10_gt = torch.log10(gt[mask])
+    return torch.mean(torch.abs(log10_pred - log10_gt))
+
+def mae(pred, gt, mask):
+    """ Mean absolute error """
+    return torch.mean(torch.abs(pred[mask] - gt[mask]))
+
 def compute_depth_metrics(pred, gt, mask):
    """ computes all depth metrics """
    abs_rel_error = abs_rel(pred, gt, mask)
@@ -40,9 +57,10 @@ def compute_depth_metrics(pred, gt, mask):
         "δ < 1.25³": threshold_metrics[2],
     }
 
+
 @torch.inference_mode()
 def evaluate_model(model, val_loader, criterion):
-   model.eval() #set eval mode
+   model.eval() # set eval mode
    device = next(model.parameters()).device
    depth_metrics_total = []
    val_loss = 0
@@ -52,20 +70,26 @@ def evaluate_model(model, val_loader, criterion):
             depth_maps = depth_maps.to(device)
             pred_depths = model(images)  #forward pass
             masks = depth_maps > 0  # Define a valid depth mask (assuming no negative depths)
-            val_loss += criterion(pred_depths, depth_maps)
-            for i in range(len(images)): 
-               pred = pred_depths[i]
-               gt = depth_maps[i]
-               mask = masks[i]
-               metrics = compute_depth_metrics(pred, gt, mask)
-               depth_metrics_total.append(metrics)
-   
-   #avg across all batches
-   val_loss /= len(val_loader)
-   avg_metrics = {key: torch.mean(torch.tensor([m[key] for m in depth_metrics_total])) for key in depth_metrics_total[0]}
+            
+            val_loss += criterion(pred_depths, depth_maps, masks) # Pass mask if needed by criterion
+
+            # Compute metrics for the entire batch using the valid mask
+            if masks.any(): # Ensure there are valid elements before computing metrics
+                metrics = compute_depth_metrics(pred_depths, depth_maps, masks)
+                depth_metrics_total.append(metrics)
+
+   # Average loss and metrics
+   # If loss was weighted by valid points: val_loss /= total_valid_points (if accumulated)
+   # Else (assuming criterion averages correctly or len(val_loader) is appropriate):
+   val_loss /= len(val_loader) # Or adjust depending on criterion behavior
+
+   # Average metrics across batches
+   if depth_metrics_total:
+        avg_metrics = {key: torch.tensor([m[key] for m in depth_metrics_total]).mean() for key in depth_metrics_total[0]}
+   else:
+        avg_metrics = {key: 0 for key in ["Abs Rel", "Sq Rel", "RMSE", "δ < 1.25", "δ < 1.25²", "δ < 1.25³"]} # Default if no valid data
 
    return val_loss.item(), avg_metrics
-
 
 
 def main(model_checkpoint, data_path, batch_size):

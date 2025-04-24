@@ -1,6 +1,6 @@
 from numpy import dtype
 import torch
-import losses
+from losses import MaskedMSELoss
 from models import ResNet6
 from tqdm import tqdm
 from dataloaders import BlendedMVS
@@ -20,7 +20,7 @@ def main(data_path: str, subset: float, batch_size: int, model: str, epochs: int
    else:
       error_msg = f"Model {model} is not a valid model name"
       raise ValueError(error_msg)
-   criterion = torch.nn.MSELoss()
+   criterion = MaskedMSELoss()
 
    # TODO: use function argument
    optimizer =  torch.optim.AdamW(model.parameters(), lr)
@@ -101,10 +101,11 @@ def train_model(model, train_loader, criterion, optimizer, scaler):
 
       x, y = data
       x, y = x.to(DEVICE), y.to(DEVICE)
+      mask = y > 0
 
       with torch.autocast(DEVICE):
          y_pred = model(x)
-         loss = criterion(y_pred, y)
+         loss = criterion(y_pred, y, mask)
 
       total_loss += loss.item()
 
