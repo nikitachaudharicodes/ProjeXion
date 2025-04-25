@@ -1,6 +1,6 @@
 from numpy import dtype
 import torch
-import losses
+from losses import MaskedMSELoss
 from models import ResNet6
 from tqdm import tqdm
 from dataloaders import BlendedMVS
@@ -8,8 +8,10 @@ from torch.utils.data import DataLoader
 from evaluation import evaluate_model
 from argparse import ArgumentParser
 import numpy as np
+from pathlib import Path
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+CHECKPOINTS = Path('checkpoints')
 
 def main(data_path: str, subset: float, batch_size: int, model: str, epochs: int, lr: float, optimizer: str, scheduler: str):
    # Model
@@ -18,7 +20,7 @@ def main(data_path: str, subset: float, batch_size: int, model: str, epochs: int
    else:
       error_msg = f"Model {model} is not a valid model name"
       raise ValueError(error_msg)
-   criterion = torch.nn.MSELoss()
+   criterion = MaskedMSELoss()
 
    # TODO: use function argument
    optimizer =  torch.optim.AdamW(model.parameters(), lr)
@@ -42,14 +44,16 @@ def main(data_path: str, subset: float, batch_size: int, model: str, epochs: int
    train_loader = DataLoader(
       dataset=train_dataset, batch_size=batch_size, collate_fn=train_dataset.collate_fn
    )
-   val_dataset = BlendedMVS(data_path=data_path, subset=subset, partition='val')
-   train_loader = DataLoader(
+   print(f"Train dataset: {len(train_dataset)} objects | {len(train_loader)} batches")
+   val_dataset = BlendedMVS(data_path=data_path, subset=1, partition='val')
+   val_loader = DataLoader(
       dataset=val_dataset, batch_size=batch_size, collate_fn=train_dataset.collate_fn
    )
+   print(f"Validation dataset: {len(val_dataset)} objects | {len(val_loader)} batches")
 
    # TODO: Add wandb to restart training
    last_epoch_completed = 0
-   best_lev_dist = float("inf")
+   best_valid_loss = float("inf")
 
    train_losses = []
    val_losses = []
@@ -60,30 +64,31 @@ def main(data_path: str, subset: float, batch_size: int, model: str, epochs: int
       curr_lr = scheduler.get_last_lr()[0]
 
       train_loss = train_model(model=model, train_loader=train_loader, criterion=criterion, optimizer=optimizer, scaler=scaler)
-      # TODO: Replace the line below
-      # valid_loss, valid_metrics = evaluate_model(model=model, val_loader=val_loader)
-      valid_loss, valid_metrics = 0, None
+      valid_loss, valid_metrics = evaluate_model(model=model, val_loader=val_loader, criterion=criterion)
       
-      if scheduler == 'ReduceLROnPlateau':
+      if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
          scheduler.step(valid_loss)
       else:
          scheduler.step()
 
       print("\tTrain Loss {:.04f}\t Learning Rate {:.07f}".format(train_loss, curr_lr))
-      # print("\tVal Loss {:.04f}".format(valid_loss)) # TODO: print metrics
+      print("\tVal Loss {:.04f}\t Absolute Relative Error {:.04f}".format(valid_loss, valid_metrics['Abs Rel']))
 
-      # if valid_dist <= best_lev_dist:
-      #    best_lev_dist = valid_dist
-      #    save_model(model, optimizer, scheduler, ['valid_dist', valid_dist], epoch, best_model_path)
-      #    print("Saved best val model")
+      if valid_loss <= best_valid_loss:
+         best_valid_loss = valid_loss
+         save_model(model, optimizer, scheduler, best_valid_loss, valid_metrics, epoch, CHECKPOINTS / 'best_model.pth')
+         print("Saved best val model")
       train_losses.append(train_loss)
       val_losses.append(valid_loss)
-   with open('losses.txt', 'w') as f:
-      f.write('train,valid\n')
-      f.writelines([f'{train_loss},{val_loss}\n' for train_loss, val_loss in zip(train_losses, val_losses)])
 
-   save_model(model, optimizer, scheduler, valid_metrics, epoch, 'checkpoints')
+   save_model(model, optimizer, scheduler, best_valid_loss, valid_metrics, epoch, CHECKPOINTS / 'last_model.pth')
    print("Saved last model")
+   
+   with (CHECKPOINTS / 'losses.txt').open('w') as f:
+      f.write('train,valid\n')
+      f.writelines([f'{train_loss:.4f},{val_loss:.4f}\n' for train_loss, val_loss in zip(train_losses, val_losses)])
+   
+
 
 def train_model(model, train_loader, criterion, optimizer, scaler):
    model.train()
@@ -94,13 +99,13 @@ def train_model(model, train_loader, criterion, optimizer, scaler):
    for i, data in enumerate(train_loader):
       optimizer.zero_grad()
 
-      x, y, lx, ly = data
+      x, y = data
       x, y = x.to(DEVICE), y.to(DEVICE)
-      lx, ly = lx.to(DEVICE), ly.to(DEVICE)
+      mask = y > 0
 
       with torch.autocast(DEVICE):
-         h, lh = model(x, lx)
-         loss = criterion(h, y)
+         y_pred = model(x)
+         loss = criterion(y_pred, y, mask)
 
       total_loss += loss.item()
 
@@ -114,19 +119,20 @@ def train_model(model, train_loader, criterion, optimizer, scaler):
       scaler.step(optimizer) # This is a replacement for optimizer.step()
       scaler.update() # This is something added just for FP16
 
-      del x, y, lx, ly, h, lh, loss
+      del x, y, loss
       torch.cuda.empty_cache()
 
    batch_bar.close() # You need this to close the tqdm bar
 
    return total_loss / len(train_loader)
 
-def save_model(model, optimizer, scheduler, metrics, epoch, path):
+def save_model(model, optimizer, scheduler, valid_loss, metrics, epoch, path: Path):
    torch.save(
       {
          'model_state_dict'         : model.state_dict(),
          'optimizer_state_dict'     : optimizer.state_dict() if optimizer is not None else {},
          'scheduler_state_dict'     : scheduler.state_dict() if scheduler is not None else {},
+         'valid_loss'               : valid_loss,
          'metrics'                  : metrics,
          'epoch'                    : epoch,
       },

@@ -1,9 +1,9 @@
 # Data
 data/
 .vscode
-/__pycache__/*
-.pytest_cache/*
-*/__pycache__/*
+*__pycache__/
+.pytest_cache/
+*/__pycache__/
 *.pytest_cache/*
 dataset_low_res/
 *.DS_Store

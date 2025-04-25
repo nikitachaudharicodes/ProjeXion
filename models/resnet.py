@@ -1,21 +1,20 @@
 import torch
+from sublayers import CNNBlock
 
 class ResNet6(torch.nn.Module):
    def __init__(self):
       super().__init__()
       self.model = torch.nn.Sequential(
          # Initial block: 3 --> 64 channels
-         ResNetBlock(3, 64, kernel_size=3, stride=1),
-         ResNetBlock(64, 64, kernel_size=3, stride=1),
-         ResNetBlock(64, 64, kernel_size=3, stride=1),
-         torch.nn.Conv2d(64, 1, kernel_size=1, stride=1),
+         ResNetBlock(3, 16, kernel_size=3, stride=1),
+         ResNetBlock(16, 16, kernel_size=3, stride=1),
+         ResNetBlock(16, 16, kernel_size=3, stride=1),
+         torch.nn.Conv2d(16, 1, kernel_size=1, stride=1),
       )
-   def forward(self, X, lens):
-      B, T, C, H, W = X.shape
-      X = X.reshape((B * T, C, H, W))
+   def forward(self, X):
+      X = X[:, 0, :, :, :]
       Z = self.model(X)
-      Z = Z.reshape(X.shape)
-      return Z, lens
+      return Z
    
 class ResNetBlock(torch.nn.Module):
    def __init__(self, in_channels, out_channels, kernel_size, stride):
@@ -45,14 +44,3 @@ class ResNetBlock(torch.nn.Module):
          X = X[:, :, ::self.stride, ::self.stride] # (B, C, H, W)
       return Z + X
    
-
-class CNNBlock(torch.nn.Module):
-   def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
-      super().__init__()
-      self.layers = torch.nn.Sequential(
-         torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding),
-         torch.nn.BatchNorm2d(out_channels),
-         torch.nn.PReLU(),
-      )
-   def forward(self, X):
-      return self.layers(X)

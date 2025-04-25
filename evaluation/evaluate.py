@@ -1,3 +1,4 @@
+from typing import Dict, List
 import torch
 import numpy as np 
 import open3d as o3d 
@@ -21,48 +22,74 @@ def threshold_metric(pred, gt, mask, threshold=1.25):
    ratio = torch.max(pred[mask] / gt[mask], gt[mask] / pred[mask])
    return torch.mean((ratio < threshold).float())
 
+
+def rmse_log(pred, gt, mask):
+    """ Root mean squared error of the log-transformed depths """
+    log_pred = torch.log(pred[mask])
+    log_gt = torch.log(gt[mask])
+    return torch.sqrt(torch.mean((log_pred - log_gt) ** 2))
+
+def log10(pred, gt, mask):
+    """ Mean absolute error in log10 space """
+    log10_pred = torch.log10(pred[mask])
+    log10_gt = torch.log10(gt[mask])
+    return torch.mean(torch.abs(log10_pred - log10_gt))
+
+def mae(pred, gt, mask):
+    """ Mean absolute error """
+    return torch.mean(torch.abs(pred[mask] - gt[mask]))
+
 def compute_depth_metrics(pred, gt, mask):
    """ computes all depth metrics """
    abs_rel_error = abs_rel(pred, gt, mask)
    sq_rel_error = sq_rel(pred, gt, mask)
    rmse_error = rmse(pred, gt, mask)
-   threshold = threshold_metric(pred, gt, mask)
+   threshold_metrics = [
+      threshold_metric(pred, gt, mask, threshold)
+      for threshold in [1.25, 1.25**2, 1.25**3]
+   ]
    return {
-        "Abs Rel": abs_rel(pred, gt, mask).item(),
-        "Sq Rel": sq_rel(pred, gt, mask).item(),
-        "RMSE": rmse(pred, gt, mask).item(),
-        "δ < 1.25": threshold_metric(pred, gt, mask, 1.25).item(),
-        "δ < 1.25²": threshold_metric(pred, gt, mask, 1.25 ** 2).item(),
-        "δ < 1.25³": threshold_metric(pred, gt, mask, 1.25 ** 3).item(),
+        "Abs Rel": abs_rel_error,
+        "Sq Rel": sq_rel_error,
+        "RMSE": rmse_error,
+        "δ < 1.25": threshold_metrics[0],
+        "δ < 1.25²": threshold_metrics[1],
+        "δ < 1.25³": threshold_metrics[2],
     }
 
 
-def evaluate_model(model, val_loader, metrics_fn) -> dict:
-   model.eval() #set eval mode
+@torch.inference_mode()
+def evaluate_model(model, val_loader, criterion):
+   model.eval() # set eval mode
    device = next(model.parameters()).device
    depth_metrics_total = []
-
+   val_loss = 0
    with torch.no_grad():
-       for batch_images_padded, batch_depth_maps_padded, lengths_images, lengths_depth_maps in tqdm(val_loader, desc="Evaluating"):
-            batch_images_padded = batch_images_padded.to(device)
-            batch_depth_maps_padded = batch_depth_maps_padded.to(device)
+       for images, depth_maps in tqdm(val_loader, desc="Evaluating"):
+            images = images.to(device)
+            depth_maps = depth_maps.to(device)
+            pred_depths = model(images)  #forward pass
+            masks = depth_maps > 0  # Define a valid depth mask (assuming no negative depths)
+            
+            val_loss += criterion(pred_depths, depth_maps, masks) # Pass mask if needed by criterion
 
-            pred_depths = model(batch_images_padded)  #forward pass
+            # Compute metrics for the entire batch using the valid mask
+            if masks.any(): # Ensure there are valid elements before computing metrics
+                metrics = compute_depth_metrics(pred_depths, depth_maps, masks)
+                depth_metrics_total.append(metrics)
 
-            for i in range(len(batch_images_padded)): 
+   # Average loss and metrics
+   # If loss was weighted by valid points: val_loss /= total_valid_points (if accumulated)
+   # Else (assuming criterion averages correctly or len(val_loader) is appropriate):
+   val_loss /= len(val_loader) # Or adjust depending on criterion behavior
 
-               pred = pred_depths[i][: lengths_depth_maps[i]]  
-               gt = batch_depth_maps_padded[i][: lengths_depth_maps[i]]  
-                
-               mask = gt > 0  # Define a valid depth mask (assuming no negative depths)
-               metrics = metrics_fn(pred, gt, mask)
-               depth_metrics_total.append(metrics)
-   
-   #avg across all batches
-   avg_metrics = {key: np.mean([m[key] for m in depth_metrics_total]) for key in depth_metrics_total[0]}
+   # Average metrics across batches
+   if depth_metrics_total:
+        avg_metrics = {key: torch.tensor([m[key] for m in depth_metrics_total]).mean() for key in depth_metrics_total[0]}
+   else:
+        avg_metrics = {key: 0 for key in ["Abs Rel", "Sq Rel", "RMSE", "δ < 1.25", "δ < 1.25²", "δ < 1.25³"]} # Default if no valid data
 
-   return avg_metrics
-
+   return val_loss.item(), avg_metrics
 
 
 def main(model_checkpoint, data_path, batch_size):
