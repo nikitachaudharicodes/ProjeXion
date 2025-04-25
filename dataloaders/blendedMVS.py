@@ -76,6 +76,7 @@ class BlendedMVS(Dataset):
       depth_map_to_tensor = T.Compose([
          T.Lambda(lambda x: torch.tensor(x, dtype=torch.float)),
          T.Resize((self.target_h, self.target_w), interpolation=Image.BILINEAR),
+         T.Lambda(lambda x: x / x.max()),
       ])
 
 

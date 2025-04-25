@@ -20,7 +20,7 @@ def main(data_path: str, subset: float, context_size: int, batch_size: int, mode
    if model == 'cnn':
       model = ResNet6().to(DEVICE)
    elif model == 'mvsnet':
-      model = MVSNet(0, 1, 0.2).to(DEVICE)
+      model = MVSNet(20).to(DEVICE)
    else:
       error_msg = f"Model {model} is not a valid model name"
       raise ValueError(error_msg)
