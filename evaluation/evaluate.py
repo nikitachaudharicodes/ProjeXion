@@ -9,37 +9,69 @@ from models import ResNet6
 
 # Depth Estimation Metrics
 def abs_rel(pred, gt, mask):
-   return torch.mean(torch.abs(pred[mask] - gt[mask]) / gt[mask])
+   abs_diff = torch.abs(pred - gt)
+   rel_error = abs_diff / (gt)
+   rel_error = rel_error * mask
+   return torch.sum(rel_error) / torch.sum(mask)
+
+   #return torch.mean(torch.abs(pred[mask] - gt[mask]) / gt[mask])
 
 def sq_rel(pred, gt, mask):
    """ Absolute relative error.. """
-   return torch.mean((pred[mask] - gt[mask]) ** 2 / gt[mask])
+
+   sq_diff = (pred - gt) ** 2
+   rel_error = sq_diff / (gt)
+   rel_error = rel_error * mask
+   return torch.sum(rel_error) / torch.sum(mask)
+   #return torch.mean((pred[mask] - gt[mask]) ** 2 / gt[mask])
 
 def rmse(pred, gt, mask):
    """ root mean square error"""
-   return torch.sqrt(torch.mean((pred[mask] - gt[mask]) ** 2))
+   sq_diff = (pred - gt) ** 2
+   sq_diff = sq_diff * mask
+   return torch.sqrt(torch.sum(sq_diff) / torch.sum(mask))
+
+   #return torch.sqrt(torch.mean((pred[mask] - gt[mask]) ** 2))
 
 def threshold_metric(pred, gt, mask, threshold=1.25):
    """ measures accuracy based on a threshold (δ < threshold)"""
-   ratio = torch.max(pred[mask] / gt[mask], gt[mask] / pred[mask])
-   return torch.mean((ratio < threshold).float())
+   pred = pred 
+   gt = gt
+   ratio = torch.max(pred / gt, gt / pred)
+   ratio = ratio * mask  # zero out invalid regions
+   valid = mask.bool()
+   return torch.sum((ratio < threshold) * valid) / torch.sum(valid)
+   # ratio = torch.max(pred[mask] / gt[mask], gt[mask] / pred[mask])
+   # return torch.mean((ratio < threshold).float())
 
 
 def rmse_log(pred, gt, mask):
     """ Root mean squared error of the log-transformed depths """
-    log_pred = torch.log(pred[mask])
-    log_gt = torch.log(gt[mask])
-    return torch.sqrt(torch.mean((log_pred - log_gt) ** 2))
+    log_pred = torch.log(pred)
+    log_gt = torch.log(gt)
+    sq_diff = (log_pred - log_gt) ** 2 * mask
+    return torch.sqrt(torch.sum(sq_diff) / torch.sum(mask))
+   #  log_pred = torch.log(pred[mask])
+   #  log_gt = torch.log(gt[mask])
+   #  return torch.sqrt(torch.mean((log_pred - log_gt) ** 2))
 
 def log10(pred, gt, mask):
     """ Mean absolute error in log10 space """
-    log10_pred = torch.log10(pred[mask])
-    log10_gt = torch.log10(gt[mask])
-    return torch.mean(torch.abs(log10_pred - log10_gt))
+
+    log10_pred = torch.log10(pred)
+    log10_gt = torch.log10(gt)
+    abs_diff = torch.abs(log10_pred - log10_gt) * mask
+    return torch.sum(abs_diff) / torch.sum(mask)
+
+   #  log10_pred = torch.log10(pred[mask])
+   #  log10_gt = torch.log10(gt[mask])
+   #  return torch.mean(torch.abs(log10_pred - log10_gt))
 
 def mae(pred, gt, mask):
     """ Mean absolute error """
-    return torch.mean(torch.abs(pred[mask] - gt[mask]))
+    abs_diff = torch.abs(pred - gt) * mask
+    return torch.sum(abs_diff) / torch.sum(mask)
+   #  return torch.mean(torch.abs(pred[mask] - gt[mask]))
 
 def compute_depth_metrics(pred, gt, mask):
    """ computes all depth metrics """
@@ -81,10 +113,9 @@ def evaluate_model(model, val_loader, criterion):
             
             val_loss += criterion(pred_depths, depth_maps, masks) # Pass mask if needed by criterion
 
-            # Compute metrics for the entire batch using the valid mask
-            if masks.any(): # Ensure there are valid elements before computing metrics
-                metrics = compute_depth_metrics(pred_depths, depth_maps, masks)
-                depth_metrics_total.append(metrics)
+            metrics = compute_depth_metrics(pred_depths, depth_maps, masks)
+            depth_metrics_total.append(metrics)
+
 
    # Average loss and metrics
    # If loss was weighted by valid points: val_loss /= total_valid_points (if accumulated)
