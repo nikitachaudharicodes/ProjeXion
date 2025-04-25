@@ -1,7 +1,7 @@
-from numpy import dtype
+from multiprocessing import context
 import torch
 from losses import MaskedMSELoss
-from models import ResNet6
+from models import ResNet6, MVSNet
 from tqdm import tqdm
 from dataloaders import BlendedMVS
 from torch.utils.data import DataLoader
@@ -9,15 +9,18 @@ from evaluation import evaluate_model
 from argparse import ArgumentParser
 import numpy as np
 from pathlib import Path
+from torchvision.transforms.v2 import Resize
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 CHECKPOINTS = Path('checkpoints')
 CHECKPOINTS.mkdir(parents=True, exist_ok=True)
 
-def main(data_path: str, subset: float, batch_size: int, model: str, epochs: int, lr: float, optimizer: str, scheduler: str):
+def main(data_path: str, subset: float, context_size: int, batch_size: int, model: str, epochs: int, lr: float, optimizer: str, scheduler: str):
    # Model
    if model == 'cnn':
       model = ResNet6().to(DEVICE)
+   elif model == 'mvsnet':
+      model = MVSNet(0, 1, 0.2).to(DEVICE)
    else:
       error_msg = f"Model {model} is not a valid model name"
       raise ValueError(error_msg)
@@ -41,12 +44,18 @@ def main(data_path: str, subset: float, batch_size: int, model: str, epochs: int
       )
    scaler = torch.GradScaler(DEVICE)
 
-   train_dataset = BlendedMVS(data_path=data_path, subset=subset, partition='train')
+   train_dataset = BlendedMVS(
+      data_path=data_path, subset=subset, partition='train', context_size=context_size,
+      height=160, width=160
+   )
    train_loader = DataLoader(
       dataset=train_dataset, batch_size=batch_size, collate_fn=train_dataset.collate_fn
    )
    print(f"Train dataset: {len(train_dataset)} objects | {len(train_loader)} batches")
-   val_dataset = BlendedMVS(data_path=data_path, subset=1, partition='val')
+   val_dataset = BlendedMVS(
+      data_path=data_path, subset=subset, partition='val',
+      height=160, width=160
+   )
    val_loader = DataLoader(
       dataset=val_dataset, batch_size=batch_size, collate_fn=train_dataset.collate_fn
    )
@@ -103,12 +112,20 @@ def train_model(model, train_loader, criterion, optimizer, scaler):
       images, intrinsics, extrinsics, depth_maps = data
       mask = depth_maps > 0
 
+      H, W = depth_maps.shape[-2:]
+      pred_to_target_size = Resize((H, W))
+
+
       with torch.autocast(DEVICE):
          if isinstance(model, ResNet6):
-            depth_maps_pred = model(images)
+            pred_depths = model(images)
+            pred_depths = pred_to_target_size(pred_depths)
+            loss = criterion(pred_depths, depth_maps, mask)
          else:
-            depth_maps_pred = model(images, intrinsics, extrinsics)
-         loss = criterion(depth_maps_pred, depth_maps, mask)
+            initial_depth_map_pred, refined_depth_map_pred = model(images, intrinsics, extrinsics)
+            initial_depth_map_pred = pred_to_target_size(initial_depth_map_pred)
+            refined_depth_map_pred = pred_to_target_size(refined_depth_map_pred)
+            loss = criterion(initial_depth_map_pred, depth_maps, mask) + criterion(refined_depth_map_pred, depth_maps, mask)
 
       total_loss += loss.item()
 
@@ -146,6 +163,7 @@ if __name__ == '__main__':
    parser = ArgumentParser()
    parser.add_argument('data_path', type=str)
    parser.add_argument('subset', type=float)
+   parser.add_argument('context_size', type=int)
    parser.add_argument('batch_size', type=int)
    parser.add_argument('model', type=str)
    parser.add_argument('epochs', type=int)
@@ -155,7 +173,8 @@ if __name__ == '__main__':
    args = parser.parse_args()
    main(
       data_path=args.data_path, 
-      subset=args.subset, 
+      subset=args.subset,
+      context_size=args.context_size,
       batch_size=args.batch_size, 
       model=args.model, 
       epochs=args.epochs, 

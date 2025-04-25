@@ -10,41 +10,14 @@ MVSNet Cost Volume Regularization Network.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-class ConvBnReLU3D(nn.Module):
-    """Basic Conv3D + BatchNorm3D + ReLU block."""
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, pad=1, **kwargs):
-        super(ConvBnReLU3D, self).__init__()
-        self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size,
-                              stride=stride, padding=pad, bias=False, **kwargs)
-        # Note: Batch norm parameters (center/scale) are enabled by default in PyTorch unlike the TF wrapper
-        self.bn = nn.BatchNorm3d(out_channels)
-        # Using inplace ReLU can save memory
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        return self.relu(self.bn(self.conv(x)))
-
-class DeconvBnReLU3D(nn.Module):
-    """Basic ConvTranspose3D + BatchNorm3D + ReLU block."""
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=2, pad=1, output_pad=1, **kwargs):
-        super(DeconvBnReLU3D, self).__init__()
-        self.conv = nn.ConvTranspose3d(in_channels, out_channels, kernel_size=kernel_size,
-                                       stride=stride, padding=pad, output_padding=output_pad,
-                                       bias=False, **kwargs)
-        self.bn = nn.BatchNorm3d(out_channels)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        return self.relu(self.bn(self.conv(x)))
-
+from models.sublayers.cnn_3d_blocks import Conv3dBlock, Deconv3dBlock
 
 class CostRegularizer(nn.Module):
     """
     Network for regularizing the 3D cost volume using a 3D U-Net architecture.
 
-    Takes an input cost volume of shape (B, 32, D, H, W) and outputs a
-    regularized volume of shape (B, 1, D, H, W) representing logits before
+    Takes an input cost volume of shape (N, 32, D, H, W) and outputs a
+    regularized volume of shape (N, 1, D, H, W) representing logits before
     softmax probability normalization.
     """
     def __init__(self, in_channels=32):
@@ -52,37 +25,37 @@ class CostRegularizer(nn.Module):
 
         # Initial convolution block reducing channels from 32 to 8
         # Scale 0
-        self.conv0_0 = ConvBnReLU3D(in_channels, 8, kernel_size=3, stride=1, pad=1)
-        self.conv0_1 = ConvBnReLU3D(8, 8, kernel_size=3, stride=1, pad=1)
+        self.conv0_0 = Conv3dBlock(in_channels, 8, kernel_size=3, stride=1, pad=1)
+        self.conv0_1 = Conv3dBlock(8, 8, kernel_size=3, stride=1, pad=1)
 
         # Encoder Path
         # Scale 1
-        self.conv1_0 = ConvBnReLU3D(8, 16, kernel_size=3, stride=2, pad=1)
-        self.conv1_1 = ConvBnReLU3D(16, 16, kernel_size=3, stride=1, pad=1)
+        self.conv1_0 = Conv3dBlock(8, 16, kernel_size=3, stride=2, pad=1)
+        self.conv1_1 = Conv3dBlock(16, 16, kernel_size=3, stride=1, pad=1)
 
         # Scale 2
-        self.conv2_0 = ConvBnReLU3D(16, 32, kernel_size=3, stride=2, pad=1)
-        self.conv2_1 = ConvBnReLU3D(32, 32, kernel_size=3, stride=1, pad=1)
+        self.conv2_0 = Conv3dBlock(16, 32, kernel_size=3, stride=2, pad=1)
+        self.conv2_1 = Conv3dBlock(32, 32, kernel_size=3, stride=1, pad=1)
 
         # Scale 3 (Bottleneck)
-        self.conv3_0 = ConvBnReLU3D(32, 64, kernel_size=3, stride=2, pad=1)
-        self.conv3_1 = ConvBnReLU3D(64, 64, kernel_size=3, stride=1, pad=1)
+        self.conv3_0 = Conv3dBlock(32, 64, kernel_size=3, stride=2, pad=1)
+        self.conv3_1 = Conv3dBlock(64, 64, kernel_size=3, stride=1, pad=1)
 
         # Decoder Path
         # Scale 2
-        self.deconv2 = DeconvBnReLU3D(64, 32, kernel_size=3, stride=2, pad=1, output_pad=1)
+        self.deconv2 = Deconv3dBlock(64, 32, kernel_size=3, stride=2, pad=1, output_pad=1)
         # After adding skip connection
-        self.deconv2_1 = ConvBnReLU3D(32, 32, kernel_size=3, stride=1, pad=1)
+        self.deconv2_1 = Conv3dBlock(32, 32, kernel_size=3, stride=1, pad=1)
 
         # Scale 1
-        self.deconv1 = DeconvBnReLU3D(32, 16, kernel_size=3, stride=2, pad=1, output_pad=1)
+        self.deconv1 = Deconv3dBlock(32, 16, kernel_size=3, stride=2, pad=1, output_pad=1)
         # After adding skip connection
-        self.deconv1_1 = ConvBnReLU3D(16, 16, kernel_size=3, stride=1, pad=1)
+        self.deconv1_1 = Conv3dBlock(16, 16, kernel_size=3, stride=1, pad=1)
 
         # Scale 0
-        self.deconv0 = DeconvBnReLU3D(16, 8, kernel_size=3, stride=2, pad=1, output_pad=1)
+        self.deconv0 = Deconv3dBlock(16, 8, kernel_size=3, stride=2, pad=1, output_pad=1)
         # After adding skip connection
-        self.deconv0_1 = ConvBnReLU3D(8, 8, kernel_size=3, stride=1, pad=1)
+        self.deconv0_1 = Conv3dBlock(8, 8, kernel_size=3, stride=1, pad=1)
 
         # Final 1x1x1 convolution to get 1 channel output (logits)
         self.final_conv = nn.Conv3d(8, 1, kernel_size=3, stride=1, padding=1, bias=False)
@@ -91,9 +64,9 @@ class CostRegularizer(nn.Module):
     def forward(self, x):
         """
         Args:
-            x: Input cost volume, shape (B, C, D, H, W). C=32 typically.
+            x: Input cost volume, shape (N, C, D, H, W). C=32 typically.
         Returns:
-            Output volume, shape (B, 1, D, H, W). Represents logits before softmax.
+            Output volume, shape (N, 1, D, H, W). Represents logits before softmax.
         """
         # Encoder
         conv0_0_out = self.conv0_0(x)

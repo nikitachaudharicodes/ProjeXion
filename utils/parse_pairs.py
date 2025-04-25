@@ -1,17 +1,16 @@
-from typing import List
+from typing import List, Dict
 
 
-def parse_pairs(pairs_path: str) -> List[List[int]]:
+def parse_pairs(pairs_path: str) -> Dict[int, List[int]]:
    with open(pairs_path, 'r') as pair_file:
       # First line has the number of views
       n = int(pair_file.readline().strip())
-      pairs = [None] * n
+      pairs = {}
       for i in range(n):
          # Parse the reference view ID
          view_id = pair_file.readline().strip()
          assert view_id != '', f"View ID {view_id} in line {i * 2 + 2} of {pairs_path} is empty" 
          view_id = int(view_id)
-         assert view_id <= n, f"View ID {view_id} in line {i * 2 + 2} of {pairs_path} is out of range (>{n})"
          views = pair_file.readline().strip().split()
          # The first value is the number of views
          n_views = views[0]
@@ -22,9 +21,5 @@ def parse_pairs(pairs_path: str) -> List[List[int]]:
          error_msg = f"Number of view scores and IDs does not match in {pairs_path} for reference image {view_id}"
          assert len(view_ids) == len(view_scores), error_msg
          pairs[view_id] = view_ids
-      # Validate results for all images
-      reference_with_missing_pairs = [index for index, views in enumerate(pairs) if views is None]
-      error_msg = f"Missing pairs in {pairs_path} for reference images {reference_with_missing_pairs}"
-      assert reference_with_missing_pairs == [], error_msg
 
       return pairs

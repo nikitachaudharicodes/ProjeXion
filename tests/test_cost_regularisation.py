@@ -5,7 +5,7 @@ import torch
 import sys
 import os
 
-from models.cost_regularizer import CostRegularizer
+from models.layers.cost_regularizer import CostRegularizer
 
 
 class TestCostRegularizer(unittest.TestCase):

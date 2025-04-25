@@ -4,12 +4,36 @@ from torch import nn
 
 class Homography(nn.Module):
 
-    def __init__(self, depth_start, depth_end, depth_interval):
+    def __init__(self, depths):
       super().__init__()
-      self.depth_start = depth_start
-      self.depth_end = depth_end
-      self.depth_interval = depth_interval
-      self.depths = torch.arange(depth_start, depth_end, depth_interval)
+      self.depths = depths
+
+    def forward(self, images, intrinsics, extrinsics):
+        """
+        :param torch.Tensor images: (N, T, C, H, W)
+        :param torch.Tensor intrinsic: (N, T, 3, 3)
+        :param torch.Tensor extrinsic: (N, T, 4, 4)
+
+        :return warped_voxels: (N, T, D, C, H, W) 
+        """
+        # (N, T, D, 3, 3)
+        homographies = self.get_homographies(intrinsics, extrinsics)
+        # (N, T, C, HxW, 3)
+        coords = self.images_to_coords(images)
+        # (N, T, D, HxW, 2)
+        warped_coords = self.warp(coords, homographies)
+        D = len(self.depths)
+        N, T, C, H, W = images.shape
+        output_images = []
+        for i in range(D):
+            output_image = torch.nn.functional.grid_sample(
+                input=images.reshape((N*T, C, H, W)),
+                grid=warped_coords.reshape((N*T, D, H, W, 2))[:, i, :, :, :],
+                mode='bilinear', padding_mode='zeros'
+            )
+            output_images.append(output_image)
+        output_images = torch.stack(output_images, dim=2).reshape((N, T, C, D, H, W))
+        return output_images
 
     def get_homographies(self, intrinsic, extrinsic):
         """
@@ -48,8 +72,8 @@ class Homography(nn.Module):
 
         # Homographies
         t_diff = t_diff.unsqueeze(dim=2).expand((-1, -1, D, -1, -1)) # (N, T, D, 3, 3)
-        eye = torch.eye(3).reshape((1, 1, 1, 3, 3)).expand((N, T, D, -1, -1)) # (N, T, D, 3, 3)
-        depths = self.depths.reshape((1, 1, -1, 1, 1)).expand((N, T, -1, 3, 3)) # (N, T, D, 3, 3)
+        eye = torch.eye(3, device=extrinsic.device).reshape((1, 1, 1, 3, 3)).expand((N, T, D, -1, -1)) # (N, T, D, 3, 3)
+        depths = self.depths.reshape((1, 1, -1, 1, 1)).expand((N, T, -1, 3, 3)).to(extrinsic.device) # (N, T, D, 3, 3)
         H = eye - t_diff / depths # (N, T, D, 3, 3)
 
         # From view coordinate system to world coordinate system
@@ -68,9 +92,9 @@ class Homography(nn.Module):
         :return torch.Tensor coords: (N, T, C, H x W, 3)
         """
         N, T, C, H, W = images.shape
-        x_coords = torch.arange(0.5, W + 0.5, 1)
-        y_coords = torch.arange(0.5, H + 0.5, 1)
-        z_coords = torch.tensor([1.0])
+        x_coords = torch.arange(0.5, W + 0.5, 1).to(images.device)
+        y_coords = torch.arange(0.5, H + 0.5, 1).to(images.device)
+        z_coords = torch.tensor([1.0]).to(images.device)
         coords = torch.cartesian_prod(x_coords, y_coords, z_coords)
         return coords
     
@@ -148,28 +172,3 @@ class Homography(nn.Module):
         out = wa * Ia + wb * Ib + wc * Ic + wd * Id  # shape: (N, T, C, D, HW)
         out = out.reshape((N, T, C, D, H, W))
         return out
-
-    def forward(self, images, intrinsic, extrinsic):
-        """
-        :param torch.Tensor images: (N, T, C, H, W)
-        :param torch.Tensor intrinsic: (N, T, 3, 3)
-        :param torch.Tensor extrinsic: (N, T, 4, 4)
-        """
-        # (N, T, D, 3, 3)
-        homographies = self.get_homographies(intrinsic, extrinsic)
-        # (N, T, C, HxW, 3)
-        coords = self.images_to_coords(images)
-        # (N, T, D, HxW, 2)
-        warped_coords = self.warp(coords, homographies)
-        D = len(self.depths)
-        N, T, C, H, W = images.shape
-        output_images = []
-        for i in range(D):
-            output_image = torch.nn.functional.grid_sample(
-                input=images.reshape((N*T, C, H, W)),
-                grid=warped_coords.reshape((N*T, D, H, W, 2))[:, i, :, :, :],
-                mode='bilinear', padding_mode='zeros'
-            )
-            output_images.append(output_image)
-        output_images = torch.stack(output_images, dim=1).reshape((N, T, D, C, H, W))
-        return output_images

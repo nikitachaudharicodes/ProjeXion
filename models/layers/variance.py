@@ -20,13 +20,13 @@ class VarianceLayer(nn.Module):
         Forward pass of the VarianceLayer.
 
         Args:
-            x (torch.Tensor): Input tensor of shape (N, H, W, D, C).
+            x (torch.Tensor): Input tensor of shape (N, T, D, C, H, W).
 
         Returns:
-            torch.Tensor: Output tensor of shape (H, W, D, C) representing the element-wise variance along dim 0.
+            torch.Tensor: Output tensor of shape (N, D, C, H, W) representing the element-wise variance along dim 0.
         """
         # Calculate the variance along the first dimension (N)
         # unbiased=False ensures division by N (population variance) as per the formula
         # keepdim=False is the default and removes the first dimension
-        variance = torch.var(x, dim=0, unbiased=False)
+        variance = torch.var(x, dim=1, correction=0)
         return variance

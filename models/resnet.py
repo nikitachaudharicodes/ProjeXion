@@ -1,5 +1,5 @@
 import torch
-from sublayers import CNNBlock
+from .sublayers import CNNBlock
 
 class ResNet6(torch.nn.Module):
    def __init__(self):

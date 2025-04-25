@@ -3,7 +3,7 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch
-from models.soft_argmin import SoftArgmin
+from models.layers.soft_argmin import SoftArgmin
 
 def test_soft_argmin():
     """Test the SoftArgmin module to verify correct behavior."""
@@ -18,7 +18,7 @@ def test_soft_argmin():
     # Create example depth values
     depth_start = 0.5
     depth_end = 5.0
-    depth_values = torch.linspace(depth_start, depth_end, D).unsqueeze(0).repeat(B, 1)
+    depth_values = torch.linspace(depth_start, depth_end, D)
     
     # Instantiate the network
     soft_argmin = SoftArgmin()
@@ -32,7 +32,7 @@ def test_soft_argmin():
     print(f"Output depth map shape: {depth_map.shape}")
     
     # Verify the output shape matches expectation (B, H, W)
-    assert depth_map.shape == (B, H, W)
+    assert depth_map.shape == (B, 1, H, W)
     
     # Test with 4D input (channel dimension already squeezed)
     cost_volume_4d = cost_volume.squeeze(1)  # [B, D, H, W]
@@ -48,10 +48,10 @@ def test_soft_argmin():
         f"Depth values outside expected range [{depth_start}, {depth_end}]"
     
     # Test numerical stability with extreme values
-    extreme_cost = torch.ones(B, D, H, W) * -1000  # Very negative costs
-    extreme_cost[:, D//2, :, :] = 0  # Make middle depth most probable
+    extreme_cost = torch.ones(B, 1, D, H, W) * -1000  # Very negative costs
+    extreme_cost[:, :, D//2, :, :] = 0  # Make middle depth most probable
     depth_map_extreme = soft_argmin(extreme_cost, depth_values)
-    expected_depth = depth_values[0, D//2].item()
+    expected_depth = depth_values[D//2].item()
     mean_depth = torch.mean(depth_map_extreme).item()
     print(f"Extreme test - Expected depth: {expected_depth:.4f}, Mean result: {mean_depth:.4f}")
     assert abs(mean_depth - expected_depth) < 0.1, "Failed numerical stability test"
