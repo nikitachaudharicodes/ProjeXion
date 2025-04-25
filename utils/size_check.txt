@@ -1,0 +1,10 @@
+ Checked 17819 images total.
+   • Exactly 640×512: 0  (0.0%)
+   • Mismatches:      17819  (100.0%)
+
+
+basically all.
+
+
+All are 576 height.
+All are 768 width.
