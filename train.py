@@ -12,6 +12,7 @@ from pathlib import Path
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 CHECKPOINTS = Path('checkpoints')
+CHECKPOINTS.mkdir(parents=True, exist_ok=True)
 
 def main(data_path: str, subset: float, batch_size: int, model: str, epochs: int, lr: float, optimizer: str, scheduler: str):
    # Model
@@ -103,7 +104,10 @@ def train_model(model, train_loader, criterion, optimizer, scaler):
       mask = depth_maps > 0
 
       with torch.autocast(DEVICE):
-         depth_maps_pred = model(images, intrinsics, extrinsics)
+         if isinstance(model, ResNet6):
+            depth_maps_pred = model(images)
+         else:
+            depth_maps_pred = model(images, intrinsics, extrinsics)
          loss = criterion(depth_maps_pred, depth_maps, mask)
 
       total_loss += loss.item()

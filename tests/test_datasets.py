@@ -7,10 +7,10 @@ def test_online_sampling():
    CONTEXT_SIZE = 2
    dataset = BlendedMVS(data_path=data_path, subset=0.7, partition='train', context_size=CONTEXT_SIZE)
    for images, intrinsics, extrinsics, labels in dataset:
-      assert images.shape == (1 + CONTEXT_SIZE, 3, 112, 112)
+      assert images.shape == (1 + CONTEXT_SIZE, 3, 512, 640)
       assert intrinsics.shape == (1 + CONTEXT_SIZE, 3, 3)
       assert extrinsics.shape == (1 + CONTEXT_SIZE, 4, 4)
-      assert labels.shape == (1, 112, 112)
+      assert labels.shape == (1, 512, 640)
 
 def test_batch_sampling():
    BATCH_SIZE = 2
@@ -24,7 +24,7 @@ def test_batch_sampling():
       assert len(batch) == 4
       batch_images, batch_intrinsics, batch_extrinsics,  batch_depth_maps = batch
       # Check shapes
-      assert batch_images.shape == (BATCH_SIZE, 1 + CONTEXT_SIZE, 3, 112, 112)
+      assert batch_images.shape == (BATCH_SIZE, 1 + CONTEXT_SIZE, 3, 512, 640)
       assert batch_intrinsics.shape == (BATCH_SIZE, 1 + CONTEXT_SIZE, 3, 3)
       assert batch_extrinsics.shape == (BATCH_SIZE, 1 + CONTEXT_SIZE, 4, 4)
-      assert batch_depth_maps.shape == (BATCH_SIZE, 1, 112, 112)
+      assert batch_depth_maps.shape == (BATCH_SIZE, 1, 512, 640)

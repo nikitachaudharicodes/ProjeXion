@@ -7,3 +7,5 @@ data/
 *.pytest_cache/*
 dataset_low_res/
 checkpoints/*
+*.DS_Store
+dataset_low_res.zip
