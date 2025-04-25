@@ -8,9 +8,9 @@ from .layers.soft_argmin import SoftArgmin
 from .layers.refinement import Refine
 
 class MVSNet(torch.nn.Module):
-   def __init__(self, depth_start, depth_end, depth_step):
+   def __init__(self, n_depths):
       super().__init__()
-      self.depths = torch.arange(depth_start, depth_end, depth_step)
+      self.depths = torch.arange(0, 1.0001, 1 / n_depths)
       self.feature_extractor = ImageEncoder()
       self.homography = Homography(depths=self.depths)
       self.variance = VarianceLayer()
