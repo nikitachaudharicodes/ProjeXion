@@ -19,12 +19,12 @@ class SoftArgmin(nn.Module):
         """
         Forward pass of the soft armin operation.
         Args:
-            cost_volume: Tensor of shape [B, 1, D, H, W] or [B, D, H, W] representing
+            cost_volume: Tensor of shape [N, 1, D, H, W] or [N, D, H, W] representing
             the cost regularized cost volume
-            depth_values: Tensor of shape [B, D] representing the dpeth hypotheses for
+            depth_values: Tensor of shape [D] representing the dpeth hypotheses for
             each sample 
         Returns:
-            depth_map: Tensor of shape [B, H, W] representing the continuous depth map
+            depth_map: Tensor of shape [N, H, W] representing the continuous depth map
         """
 
         if cost_volume.dim() == 5:
@@ -34,13 +34,13 @@ class SoftArgmin(nn.Module):
 
         # apply softmax along the depth dimension to get probabilities (with negative sign for argmin)
         # the negative sign turns the minimum cost into maximum probability
-        probability_volume = F.softmax(-cost_volume, dim=1)
+        probability_volume = F.softmax(-cost_volume, dim=-3)
 
         # prep the depth_values for correct broadcasting with probability_volume 
-        depth_values = depth_values.view(batch_size, depth_num, 1, 1)
+        depth_values = depth_values.view(depth_num, 1, 1)
 
         # comute the expectation (weighted average) along the depth dimension
-        depth_map = torch.sum(probability_volume * depth_values, dim=1)
+        depth_map = torch.sum(probability_volume * depth_values, dim=-3)
 
         return depth_map
 

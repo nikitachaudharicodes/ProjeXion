@@ -116,12 +116,11 @@ class BlendedMVS(Dataset):
          for camera_path in camera_parameters_paths:
             intrinsic, extrinsic = parse_cam(str(camera_path))
             # Scale intrinsic parameters
-            sx = self.target_w / (2 * intrinsic[0,2])
-            sy = self.target_h / (2 * intrinsic[1,2])
-            scaled_intrinsic = intrinsic.copy()
-            scaled_intrinsic[0,0] *= sx;  scaled_intrinsic[0,2] *= sx
-            scaled_intrinsic[1,1] *= sy;  scaled_intrinsic[1,2] *= sy
-            intrinsics.append(scaled_intrinsic)
+            sx = self.target_w / (2 * intrinsic[0,2].item())
+            sy = self.target_h / (2 * intrinsic[1,2].item())
+            intrinsic[0,0] *= sx;  intrinsic[0,2] *= sx
+            intrinsic[1,1] *= sy;  intrinsic[1,2] *= sy
+            intrinsics.append(intrinsic)
             extrinsics.append(extrinsic)
          intrinsics = torch.stack(intrinsics, axis=0) # (T, 3, 3)
          extrinsics = torch.stack(extrinsics, axis=0) # (T, 4, 4)

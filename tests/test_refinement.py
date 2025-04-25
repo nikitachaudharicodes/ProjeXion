@@ -1,6 +1,6 @@
 import unittest
 import torch
-from models.refinement import Refine
+from models.layers.refinement import Refine
 
 class TestRefine(unittest.TestCase):
 
@@ -17,9 +17,9 @@ class TestRefine(unittest.TestCase):
 
     def test_residual_connection(self):
         """Check if residual connection is applied."""
-        B, H, W = 1, 64, 64
+        B, H, W = 1, 3, 3
         ref_image = torch.zeros(B, 3, H, W)
-        init_depth = torch.ones(B, 1, H, W) * 2.0
+        init_depth = torch.rand(B, 1, H, W)
         output = self.model(ref_image, init_depth)
         self.assertFalse(torch.equal(output, init_depth))  # Should be different due to residual
 

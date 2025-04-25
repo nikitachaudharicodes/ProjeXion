@@ -8,14 +8,12 @@ class DummyDataset(Dataset):
     def __len__(self):
         return self.size
     def __getitem__(self, idx):
-        C, H, W = 3, 8, 8
-        imgs = torch.rand((C, H, W))           # Just (C,H,W), batch will be added by DataLoader
-        depth = torch.rand((1, H, W))
-        Kref = torch.eye(3)
-        Ksrc = torch.stack([torch.eye(3)] * 2)
-        Rtref = torch.rand(3, 4)
-        Rtsrc = torch.rand((2, 3, 4))
-        return imgs, depth, Kref, Ksrc, Rtref, Rtsrc
+        T, C, H, W = 2, 3, 8, 8
+        imgs = torch.rand((T, C, H, W))           # Just (C,H,W), batch will be added by DataLoader
+        depth = torch.rand((H, W))
+        intrinsics = torch.stack([torch.eye(3)] * T)
+        extrinsics = torch.rand(4, 4)
+        return imgs, intrinsics, extrinsics, depth
 
 class DummyModel(torch.nn.Module):
     def __init__(self):
@@ -26,7 +24,7 @@ class DummyModel(torch.nn.Module):
         # Expect input x to be (B, C, H, W)
         if x.ndim == 3:
             x = x.unsqueeze(0)  # fallback for safety if batching fails
-        B, C, H, W = x.shape
+        B, T, C, H, W = x.shape
         return torch.rand(B, 1, H, W)
 
 
@@ -36,7 +34,7 @@ class DummyLoss(torch.nn.Module):
 
 def test_evaluate_model_loop():
     model = DummyModel()
-    loader = DataLoader(DummyDataset(), batch_size=2, collate_fn=DummyDataset().__getitem__)
+    loader = DataLoader(DummyDataset(), batch_size=2)
     loss_fn = DummyLoss()
 
     val_loss, metrics = evaluate_model(model, loader, loss_fn)

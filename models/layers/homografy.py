@@ -4,12 +4,36 @@ from torch import nn
 
 class Homography(nn.Module):
 
-    def __init__(self, depth_start, depth_end, depth_interval):
+    def __init__(self, depths):
       super().__init__()
-      self.depth_start = depth_start
-      self.depth_end = depth_end
-      self.depth_interval = depth_interval
-      self.depths = torch.arange(depth_start, depth_end, depth_interval)
+      self.depths = depths
+
+    def forward(self, images, intrinsics, extrinsics):
+        """
+        :param torch.Tensor images: (N, T, C, H, W)
+        :param torch.Tensor intrinsic: (N, T, 3, 3)
+        :param torch.Tensor extrinsic: (N, T, 4, 4)
+
+        :return warped_voxels: (N, T, D, C, H, W) 
+        """
+        # (N, T, D, 3, 3)
+        homographies = self.get_homographies(intrinsics, extrinsics)
+        # (N, T, C, HxW, 3)
+        coords = self.images_to_coords(images)
+        # (N, T, D, HxW, 2)
+        warped_coords = self.warp(coords, homographies)
+        D = len(self.depths)
+        N, T, C, H, W = images.shape
+        output_images = []
+        for i in range(D):
+            output_image = torch.nn.functional.grid_sample(
+                input=images.reshape((N*T, C, H, W)),
+                grid=warped_coords.reshape((N*T, D, H, W, 2))[:, i, :, :, :],
+                mode='bilinear', padding_mode='zeros'
+            )
+            output_images.append(output_image)
+        output_images = torch.stack(output_images, dim=2).reshape((N, T, C, D, H, W))
+        return output_images
 
     def get_homographies(self, intrinsic, extrinsic):
         """
@@ -148,28 +172,3 @@ class Homography(nn.Module):
         out = wa * Ia + wb * Ib + wc * Ic + wd * Id  # shape: (N, T, C, D, HW)
         out = out.reshape((N, T, C, D, H, W))
         return out
-
-    def forward(self, images, intrinsic, extrinsic):
-        """
-        :param torch.Tensor images: (N, T, C, H, W)
-        :param torch.Tensor intrinsic: (N, T, 3, 3)
-        :param torch.Tensor extrinsic: (N, T, 4, 4)
-        """
-        # (N, T, D, 3, 3)
-        homographies = self.get_homographies(intrinsic, extrinsic)
-        # (N, T, C, HxW, 3)
-        coords = self.images_to_coords(images)
-        # (N, T, D, HxW, 2)
-        warped_coords = self.warp(coords, homographies)
-        D = len(self.depths)
-        N, T, C, H, W = images.shape
-        output_images = []
-        for i in range(D):
-            output_image = torch.nn.functional.grid_sample(
-                input=images.reshape((N*T, C, H, W)),
-                grid=warped_coords.reshape((N*T, D, H, W, 2))[:, i, :, :, :],
-                mode='bilinear', padding_mode='zeros'
-            )
-            output_images.append(output_image)
-        output_images = torch.stack(output_images, dim=1).reshape((N, T, D, C, H, W))
-        return output_images

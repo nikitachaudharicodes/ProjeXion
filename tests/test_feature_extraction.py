@@ -1,6 +1,6 @@
 import unittest
 import torch
-from models.feature_extraction import ImageEncoder
+from models.layers.feature_extraction import ImageEncoder
 """
 Command to run the test:
 python -m unittest -v tests/test_feature_extraction.py
