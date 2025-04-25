@@ -4,7 +4,7 @@ import numpy as np
 import open3d as o3d 
 from tqdm import tqdm
 from models import ResNet6
-
+from torchvision.transforms.v2 import Resize
 
 
 # Depth Estimation Metrics
@@ -102,15 +102,22 @@ def evaluate_model(model, val_loader, criterion):
        for batch in tqdm(val_loader, desc="Evaluating"):
             batch = map(lambda x: x.to(device), batch)
             images, intrinsics, extrinsics, depth_maps = batch
+            masks = depth_maps > 0
+
+            H, W = depth_maps.shape[-2:]
+            pred_to_target_size = Resize((H, W))
+   
             if isinstance(model, ResNet6):
                pred_depths = model(images)
+               pred_depths = pred_to_target_size(pred_depths)
+               val_loss = criterion(pred_depths, depth_maps, masks)
+               metrics = compute_depth_metrics(pred_depths, depth_maps, masks)
             else:
-               pred_depths = model(images, intrinsics, extrinsics)  #forward pass
-            masks = depth_maps > 0  # Define a valid depth mask (assuming no negative depths)
-
-            val_loss += criterion(pred_depths, depth_maps, masks) # Pass mask if needed by criterion
-
-            metrics = compute_depth_metrics(pred_depths, depth_maps, masks)
+               initial_depth_map_pred, refined_depth_map_pred = model(images, intrinsics, extrinsics)
+               initial_depth_map_pred = pred_to_target_size(initial_depth_map_pred)
+               refined_depth_map_pred = pred_to_target_size(refined_depth_map_pred)
+               val_loss = criterion(initial_depth_map_pred, depth_maps, masks) + criterion(refined_depth_map_pred, depth_maps, masks)
+               metrics = compute_depth_metrics(refined_depth_map_pred, depth_maps, masks)
             depth_metrics_total.append(metrics)
 
 

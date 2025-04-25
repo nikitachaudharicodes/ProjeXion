@@ -1,11 +1,12 @@
 data_path=data/dataset_low_res
-subset=1
-batch_size=1
-model=cnn
-epochs=50
-lr=0.0002
+subset=0.7
+batch_size=64
+context_size=4
+model=mvsnet
+epochs=20
+lr=0.00002
 optimizer=AdamW
-scheduler=ReduceLROnPlateu
-echo "python train.py ${data_path} ${subset} ${batch_size} ${model} ${epochs} ${lr} ${optimizer} ${scheduler}"
-python train.py ${data_path} ${subset} ${batch_size} ${model} ${epochs} ${lr} ${optimizer} ${scheduler}
+scheduler=ConstantLR
+echo "python train.py ${data_path} ${subset} ${context_size} ${batch_size} ${model} ${epochs} ${lr} ${optimizer} ${scheduler}"
+python train.py ${data_path} ${subset} ${context_size} ${batch_size} ${model} ${epochs} ${lr} ${optimizer} ${scheduler}
 python utils/plots.py checkpoints/losses.txt 

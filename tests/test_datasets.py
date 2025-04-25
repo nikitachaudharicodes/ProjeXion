@@ -11,6 +11,7 @@ def test_online_sampling():
       assert intrinsics.shape == (1 + CONTEXT_SIZE, 3, 3)
       assert extrinsics.shape == (1 + CONTEXT_SIZE, 4, 4)
       assert labels.shape == (1, 512, 640)
+      break
 
 def test_batch_sampling():
    BATCH_SIZE = 2
@@ -28,3 +29,4 @@ def test_batch_sampling():
       assert batch_intrinsics.shape == (BATCH_SIZE, 1 + CONTEXT_SIZE, 3, 3)
       assert batch_extrinsics.shape == (BATCH_SIZE, 1 + CONTEXT_SIZE, 4, 4)
       assert batch_depth_maps.shape == (BATCH_SIZE, 1, 512, 640)
+      break

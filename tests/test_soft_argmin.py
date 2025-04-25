@@ -32,7 +32,7 @@ def test_soft_argmin():
     print(f"Output depth map shape: {depth_map.shape}")
     
     # Verify the output shape matches expectation (B, H, W)
-    assert depth_map.shape == (B, H, W)
+    assert depth_map.shape == (B, 1, H, W)
     
     # Test with 4D input (channel dimension already squeezed)
     cost_volume_4d = cost_volume.squeeze(1)  # [B, D, H, W]

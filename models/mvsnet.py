@@ -22,11 +22,13 @@ class MVSNet(torch.nn.Module):
       """
       :param images: (N, T, C, H, W)
       """
-      image_features = self.feature_extractor(images) # (N, T, 32, H, W)
+      N, T, C, H, W = images.shape
+      image_features = self.feature_extractor(images.reshape((N*T, C, H, W))) # (N*T, 32, H, W)
+      image_features = image_features.reshape(((N, T, 32, H // 4, W // 4)))
       voxels = self.homography(image_features, intrinsics, extrinsics) # (N, T, C, D, H, W)
       voxels = self.variance(voxels) # (N, C, D, H, W)
       voxels = self.cost_regularizer(voxels) # (N, 1, D, H, W)
-      initial_depth_map = self.soft_argmin(voxels, self.depths)
-      refined_depth_map = self.refinement(images, initial_depth_map)
+      initial_depth_map = self.soft_argmin(voxels, self.depths) # (N, 1, H, W)
+      refined_depth_map = self.refinement(images[:, 0], initial_depth_map)
       return initial_depth_map, refined_depth_map
    

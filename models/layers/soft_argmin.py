@@ -37,10 +37,10 @@ class SoftArgmin(nn.Module):
         probability_volume = F.softmax(-cost_volume, dim=-3)
 
         # prep the depth_values for correct broadcasting with probability_volume 
-        depth_values = depth_values.view(depth_num, 1, 1)
+        depth_values = depth_values.view(depth_num, 1, 1).to(cost_volume.device)
 
         # comute the expectation (weighted average) along the depth dimension
-        depth_map = torch.sum(probability_volume * depth_values, dim=-3)
+        depth_map = torch.sum(probability_volume * depth_values, dim=-3, keepdim=True)
 
         return depth_map
 
