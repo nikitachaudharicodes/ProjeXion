@@ -7,7 +7,7 @@ import random
 from torch.utils.data import Dataset
 import torch
 import numpy as np
-from utils import load_pfm, parse_pairs
+from utils import load_pfm, parse_pairs, parse_cam
 from pathlib import Path
 from tqdm import tqdm
 from PIL import Image
@@ -69,6 +69,8 @@ class BlendedMVS(Dataset):
       object_images = []
       object_depth_maps = []
       object_image_pairs = []
+      object_intrinsics = []
+      object_extrinsics = []
       for object_path in tqdm(self.object_paths, desc=f"Loading {partition} images"):
          # Load images
          images_paths = sorted(list((object_path / 'blended_images').iterdir()))
@@ -95,10 +97,31 @@ class BlendedMVS(Dataset):
          image_pairs = parse_pairs(pairs_path=pairs_paths)
          object_image_pairs.append(image_pairs)
 
-      assert len(object_images) == len(object_depth_maps) == len(object_image_pairs) == self.length
+         # Load camera parameters
+         camera_parameters_paths = sorted([
+            file for file in (object_path / 'cams').iterdir() if file.name.endswith("_cam.txt")
+         ])
+         intrinsics = []
+         extrinsics = []
+         for camera_path in camera_parameters_paths:
+            intrinsic, extrinsic = parse_cam(str(camera_path))
+            intrinsics.append(intrinsic)
+            extrinsics.append(extrinsic)
+         intrinsics = torch.stack(intrinsics, axis=0) # (T, 3, 3)
+         extrinsics = torch.stack(extrinsics, axis=0) # (T, 4, 4)
+         object_intrinsics.append(intrinsics)
+         object_extrinsics.append(extrinsics)
+
+
+      assert (
+         len(object_images) == len(object_depth_maps) == len(object_image_pairs)
+         == len(object_intrinsics) == len(object_extrinsics) == self.length
+      )
       self.object_image_pairs = object_image_pairs
       self.object_images = object_images
       self.object_depth_maps = object_depth_maps
+      self.object_intrinsics = object_intrinsics
+      self.object_extrinsics = object_extrinsics
 
    def __len__(self):
       return self.length
@@ -106,23 +129,28 @@ class BlendedMVS(Dataset):
    def __getitem__(self, object_index):
       # Features
       images = self.object_images[object_index]
+      ## Select the reference image randomly
       reference_image_id = random.randint(0, len(images))
-      reference_image = images[reference_image_id]
-      context_image_ids = self.object_image_pairs[object_index][reference_image_id][:self.context_size]
-      context_images = [
-         images[pair_index]
-         for pair_index in context_image_ids
-      ]
-      ## The reference image will always be the first one
-      images = torch.stack([reference_image] + context_images)
+      ## Get context for the reference image
+      pairs = self.object_image_pairs[object_index]
+      context_image_ids = pairs[reference_image_id][:self.context_size]
+      image_ids = [reference_image_id] + context_image_ids
+      ## Select the final set of images
+      images = images[image_ids]
+
+      ## Get camera paramters for images
+      extrinsics = self.object_extrinsics[object_index][image_ids]
+      intrinsics = self.object_intrinsics[object_index][image_ids]
 
       # Target
       depth_map = self.object_depth_maps[object_index][reference_image_id]
-      return images, depth_map
+      return images, intrinsics, extrinsics, depth_map
    
    def collate_fn(self, batch: List[Tuple[torch.Tensor, torch.Tensor]]):
       # Extract batch of input images and batch of output depth maps separately
-      batch_images, batch_depth_maps = list(zip(*batch))
+      batch_images, batch_intrinsics, batch_extrinsics,  batch_depth_maps = list(zip(*batch))
       batch_images = torch.stack(batch_images)
+      batch_intrinsics = torch.stack(batch_intrinsics)
+      batch_extrinsics = torch.stack(batch_extrinsics)
       batch_depth_maps = torch.stack(batch_depth_maps)
-      return batch_images, batch_depth_maps
+      return batch_images, batch_intrinsics, batch_extrinsics, batch_depth_maps

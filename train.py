@@ -98,14 +98,13 @@ def train_model(model, train_loader, criterion, optimizer, scaler):
 
    for i, data in enumerate(train_loader):
       optimizer.zero_grad()
-
-      x, y = data
-      x, y = x.to(DEVICE), y.to(DEVICE)
-      mask = y > 0
+      data = map(lambda x: x.to(DEVICE), data)
+      images, intrinsics, extrinsics, depth_maps = data
+      mask = depth_maps > 0
 
       with torch.autocast(DEVICE):
-         y_pred = model(x)
-         loss = criterion(y_pred, y, mask)
+         depth_maps_pred = model(images, intrinsics, extrinsics)
+         loss = criterion(depth_maps_pred, depth_maps, mask)
 
       total_loss += loss.item()
 
@@ -119,7 +118,7 @@ def train_model(model, train_loader, criterion, optimizer, scaler):
       scaler.step(optimizer) # This is a replacement for optimizer.step()
       scaler.update() # This is something added just for FP16
 
-      del x, y, loss
+      del images, intrinsics, extrinsics, depth_maps, data, mask, loss
       torch.cuda.empty_cache()
 
    batch_bar.close() # You need this to close the tqdm bar

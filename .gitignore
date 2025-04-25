@@ -6,3 +6,4 @@ data/
 */__pycache__/
 *.pytest_cache/*
 dataset_low_res/
+checkpoints/*
