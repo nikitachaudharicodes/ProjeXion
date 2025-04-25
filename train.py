@@ -12,6 +12,9 @@ from pathlib import Path
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 CHECKPOINTS = Path('checkpoints')
+CHECKPOINTS.mkdir(parents=True, exist_ok=True)
+
+
 
 def main(data_path: str, subset: float, batch_size: int, model: str, epochs: int, lr: float, optimizer: str, scheduler: str):
    # Model
@@ -99,13 +102,25 @@ def train_model(model, train_loader, criterion, optimizer, scaler):
    for i, data in enumerate(train_loader):
       optimizer.zero_grad()
 
-      x, y = data
-      x, y = x.to(DEVICE), y.to(DEVICE)
-      mask = y > 0
+      # Always move all tensors to device
+      if isinstance(data, tuple) and len(data) == 6:
+         imgs, depth, K_ref, K_src, Rt_ref, Rt_src = data
+         imgs, depth = imgs.to(DEVICE), depth.to(DEVICE)
+         K_ref, K_src = K_ref.to(DEVICE), K_src.to(DEVICE)
+         Rt_ref, Rt_src = Rt_ref.to(DEVICE), Rt_src.to(DEVICE)
+      else:
+         imgs, depth = data
+         imgs, depth = imgs.to(DEVICE), depth.to(DEVICE)
+
+      mask = depth > 0
 
       with torch.autocast(DEVICE):
-         y_pred = model(x)
-         loss = criterion(y_pred, y, mask)
+         if isinstance(model, ResNet6):
+               y_pred = model(imgs)  # only give imgs to ResNet6
+         else:
+               y_pred = model(imgs, K_ref, K_src, Rt_ref, Rt_src)
+
+         loss = criterion(y_pred, depth, mask)
 
       total_loss += loss.item()
 
@@ -119,8 +134,8 @@ def train_model(model, train_loader, criterion, optimizer, scaler):
       scaler.step(optimizer) # This is a replacement for optimizer.step()
       scaler.update() # This is something added just for FP16
 
-      del x, y, loss
-      torch.cuda.empty_cache()
+      del imgs, depth, K_ref, K_src, Rt_ref, Rt_src, loss
+      torch.cuda.empty_cache() 
 
    batch_bar.close() # You need this to close the tqdm bar
 
