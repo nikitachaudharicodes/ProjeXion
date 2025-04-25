@@ -3,7 +3,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 
 # 1) Point this at your downloaded dataset folder
-dataset_dir = "data/BlendedMVS/dataset_low_res"
+dataset_dir = "data/dataset_low_res"
 
 # 2) Lists to collect stats
 widths = []
@@ -38,7 +38,7 @@ for root, _, files in os.walk(dataset_dir):
 total = len(widths)
 good  = total - len(mismatches)
 bad   = len(mismatches)
-print(f"\n✅ Checked {total} images total.")
+print(f"\nChecked {total} images total.")
 print(f"   • Exactly 640×512: {good}  ({100*good/total:.1f}%)")
 print(f"   • Mismatches:      {bad}  ({100*bad/total:.1f}%)")
 

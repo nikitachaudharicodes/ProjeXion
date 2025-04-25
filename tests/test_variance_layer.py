@@ -42,7 +42,7 @@ class TestVarianceLayer(unittest.TestCase):
         self.assertEqual(output_tensor.shape, (H, W, D, C))
 
     def test_different_dimensions(self):
-        """Tests with different valid dimensions."""
+        """Tests with diopfferent valid dimensions."""
         N, H, W, D, C = 5, 8, 10, 4, 16
         input_tensor = torch.randn(N, H, W, D, C)
         variance_layer = VarianceLayer()
