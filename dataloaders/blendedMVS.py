@@ -47,6 +47,7 @@ class BlendedMVS(Dataset):
       assert samples_per_epoch > 0, f"samples_per_epoch ({samples_per_epoch}) must be greater than 0"
       # Store configuration
       self.data_path = data_path
+      self.partition = partition
       self.target_h = height
       self.target_w = width
       self.context_size = context_size
@@ -141,15 +142,22 @@ class BlendedMVS(Dataset):
       self.object_extrinsics = object_extrinsics
 
    def __len__(self):
-      return self.samples_per_epoch
+      if self.partition == 'test':
+         return len(self.object_images)
+      else:
+         return self.samples_per_epoch
    
    def __getitem__(self, object_index):
-      # Ignore the input argument and select and object randomly
-      object_index = random.randint(0, self.length - 1)
+      if self.partition != 'test':
+         # Ignore the input argument and select and object randomly
+         object_index = random.randint(0, self.length - 1)
       # Features
       images = self.object_images[object_index]
-      ## Select the reference image randomly
-      reference_image_id = random.choice(list(images.keys()))
+      if self.partition != 'test':
+         ## Select the reference image randomly
+         reference_image_id = random.choice(list(images.keys()))
+      else:
+         reference_image_id = 0 # Always the first one
       ## Get context for the reference image
       pairs = self.object_image_pairs[object_index]
       all_context_images = pairs.get(reference_image_id)
