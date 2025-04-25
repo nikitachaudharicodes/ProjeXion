@@ -14,8 +14,6 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 CHECKPOINTS = Path('checkpoints')
 CHECKPOINTS.mkdir(parents=True, exist_ok=True)
 
-
-
 def main(data_path: str, subset: float, batch_size: int, model: str, epochs: int, lr: float, optimizer: str, scheduler: str):
    # Model
    if model == 'cnn':
@@ -101,26 +99,16 @@ def train_model(model, train_loader, criterion, optimizer, scaler):
 
    for i, data in enumerate(train_loader):
       optimizer.zero_grad()
-
-      # Always move all tensors to device
-      if isinstance(data, tuple) and len(data) == 6:
-         imgs, depth, K_ref, K_src, Rt_ref, Rt_src = data
-         imgs, depth = imgs.to(DEVICE), depth.to(DEVICE)
-         K_ref, K_src = K_ref.to(DEVICE), K_src.to(DEVICE)
-         Rt_ref, Rt_src = Rt_ref.to(DEVICE), Rt_src.to(DEVICE)
-      else:
-         imgs, depth = data
-         imgs, depth = imgs.to(DEVICE), depth.to(DEVICE)
-
-      mask = depth > 0
+      data = map(lambda x: x.to(DEVICE), data)
+      images, intrinsics, extrinsics, depth_maps = data
+      mask = depth_maps > 0
 
       with torch.autocast(DEVICE):
          if isinstance(model, ResNet6):
-               y_pred = model(imgs)  # only give imgs to ResNet6
+            depth_maps_pred = model(images)
          else:
-               y_pred = model(imgs, K_ref, K_src, Rt_ref, Rt_src)
-
-         loss = criterion(y_pred, depth, mask)
+            depth_maps_pred = model(images, intrinsics, extrinsics)
+         loss = criterion(depth_maps_pred, depth_maps, mask)
 
       total_loss += loss.item()
 
@@ -134,8 +122,8 @@ def train_model(model, train_loader, criterion, optimizer, scaler):
       scaler.step(optimizer) # This is a replacement for optimizer.step()
       scaler.update() # This is something added just for FP16
 
-      del imgs, depth, K_ref, K_src, Rt_ref, Rt_src, loss
-      torch.cuda.empty_cache() 
+      del images, intrinsics, extrinsics, depth_maps, data, mask, loss
+      torch.cuda.empty_cache()
 
    batch_bar.close() # You need this to close the tqdm bar
 

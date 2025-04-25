@@ -99,18 +99,15 @@ def evaluate_model(model, val_loader, criterion):
    depth_metrics_total = []
    val_loss = 0
    with torch.no_grad():
-       for images, depth_maps, K_ref, K_src, Rt_ref, Rt_src in tqdm(val_loader, desc="Evaluating"):
-            images = images.to(device)
-            depth_maps = depth_maps.to(device)
-            K_ref, K_src = K_ref.to(device), K_src.to(device)
-            Rt_ref, Rt_src = Rt_ref.to(device), Rt_src.to(device)
-            # pred_depths = model(images, K_ref, K_src, Rt_ref, Rt_src)  #forward pass
+       for batch in tqdm(val_loader, desc="Evaluating"):
+            batch = map(lambda x: x.to(device), batch)
+            images, intrinsics, extrinsics, depth_maps = batch
             if isinstance(model, ResNet6):
                pred_depths = model(images)
             else:
-               pred_depths = model(images, K_ref, K_src, Rt_ref, Rt_src)
+               pred_depths = model(images, intrinsics, extrinsics)  #forward pass
             masks = depth_maps > 0  # Define a valid depth mask (assuming no negative depths)
-            
+
             val_loss += criterion(pred_depths, depth_maps, masks) # Pass mask if needed by criterion
 
             metrics = compute_depth_metrics(pred_depths, depth_maps, masks)

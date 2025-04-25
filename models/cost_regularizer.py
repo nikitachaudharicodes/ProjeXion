@@ -49,8 +49,6 @@ class CostRegularizer(nn.Module):
     """
     def __init__(self, in_channels=32):
         super(CostRegularizer, self).__init__()
-        print('Cost Regularizer: 3D UNet with 4 scales and 2 convs per scale.')
-        print(f'Input channels: {in_channels}')
 
         # Initial convolution block reducing channels from 32 to 8
         # Scale 0

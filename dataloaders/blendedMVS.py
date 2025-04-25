@@ -7,7 +7,7 @@ import random
 from torch.utils.data import Dataset
 import torch
 import numpy as np
-from utils import load_pfm, parse_pairs
+from utils import load_pfm, parse_pairs, parse_cam
 from pathlib import Path
 from tqdm import tqdm
 from PIL import Image
@@ -24,7 +24,6 @@ class BlendedMVS(Dataset):
                 subset:float=1,
                 partition:Literal['train', 'val', 'test']='train',
                 context_size:int=0,
-                img_size: Tuple[int,int] = (512,640)  # (H, W)
                 ):
       """
       :param str data_path: Path to directory with all examples
@@ -36,18 +35,18 @@ class BlendedMVS(Dataset):
       :param int width:   target image  width after resize
       """
       # Check input
-      self.data_path = Path(data_path)
-      assert self.data_path.exists()
+      data_path = Path(data_path)
+      assert data_path.exists()
       assert partition in ['train', 'val', 'test'], "Partition must be 'train', 'val', or 'test'"
-      list_file = self.data_path / f"{partition}_list.txt"
+      list_file = data_path / f"{partition}_list.txt"
       assert list_file.exists(), f"File {list_file} does not exist"
       assert 0 < subset <= 1, f"Subset value should be between (0, 1]"
-      self.img_size = img_size
-      H, W = self.img_size
-      assert H % 32 == 0 and W % 32 == 0, "img_size dims must be divisible by 32"
+      assert height % 32 == 0 and width % 32 == 0, "img_size dims must be divisible by 32"
+      assert context_size <= 10, "The context size must be <= 10"
+      # Store configuration
+      self.data_path = data_path
       self.target_h = height
       self.target_w = width
-      # Store configuration
       self.context_size = context_size
 
       # Parse list file
@@ -65,25 +64,23 @@ class BlendedMVS(Dataset):
       self.object_paths = all_object_paths[:self.length]
       assert len(self.object_paths) > 0, f"Kept {len(self.object_paths)} after applying the subset factor. At least 1 example should be retained"
       
-      H, W = self.img_size
       pil_to_tensor = T.Compose([
-         T.Resize((H, W), interpolation=Image.BILINEAR),
+         T.Resize((self.target_h, self.target_w), interpolation=Image.BILINEAR),
          T.ToImage(),
          T.ToDtype(torch.float32, scale=True),
          T.Normalize([0.5]*3, [0.5]*3),
       ])
       depth_map_to_tensor = T.Compose([
          T.Lambda(lambda x: torch.tensor(x, dtype=torch.float32)),
-         T.Resize(self.img_size, interpolation=Image.BILINEAR),
+         T.Resize((self.target_h, self.target_w), interpolation=Image.BILINEAR),
       ])
 
 
       object_images = []
       object_depth_maps = []
       object_image_pairs = []
-      self.object_Ks_scaled   = []  # list of (T×3×3)
-      self.object_extrinsics  = []  # list of (T×3×4)
-
+      object_intrinsics = []
+      object_extrinsics = []
       for object_path in tqdm(self.object_paths, desc=f"Loading {partition} images"):
          # Load images
          images_paths = sorted(list((object_path / 'blended_images').iterdir()))
@@ -110,91 +107,68 @@ class BlendedMVS(Dataset):
          image_pairs = parse_pairs(pairs_path=pairs_paths)
          object_image_pairs.append(image_pairs)
 
-         # — load & scale cams
-         Ks_scene  = []
-         Rts_scene = []
-         cams_dir = object_path/'cams'
-         for cam_file in sorted(cams_dir.iterdir()):
-               if cam_file.name == 'pair.txt':
-                  continue
-               lines = [l.strip() for l in cam_file.open() if l.strip()]
-               # extrinsic
-               i_ext = lines.index('extrinsic')
-               ext_vals = " ".join(lines[i_ext+1:i_ext+4])
-               ext_mat = np.fromstring(ext_vals, sep=" ").reshape(3,4)
-               Rts_scene.append(torch.from_numpy(ext_mat).float())
-               # intrinsic
-               i_int = lines.index('intrinsic')
-               kin_vals = " ".join(lines[i_int+1:i_int+4])
-               K0 = np.fromstring(kin_vals, sep=" ").reshape(3,3)
-               # compute scale factors from principal point
-               sx = self.target_w / (2 * K0[0,2])
-               sy = self.target_h / (2 * K0[1,2])
-               K2 = K0.copy()
-               K2[0,0] *= sx;  K2[0,2] *= sx
-               K2[1,1] *= sy;  K2[1,2] *= sy
-               Ks_scene.append(torch.from_numpy(K2).float())
-         self.object_extrinsics.append(torch.stack(Rts_scene))  # (T,3,4)
-         self.object_Ks_scaled.append(torch.stack(Ks_scene))    # (T,3,3)
+         # Load camera parameters
+         camera_parameters_paths = sorted([
+            file for file in (object_path / 'cams').iterdir() if file.name.endswith("_cam.txt")
+         ])
+         intrinsics = []
+         extrinsics = []
+         for camera_path in camera_parameters_paths:
+            intrinsic, extrinsic = parse_cam(str(camera_path))
+            # Scale intrinsic parameters
+            sx = self.target_w / (2 * intrinsic[0,2])
+            sy = self.target_h / (2 * intrinsic[1,2])
+            scaled_intrinsic = intrinsic.copy()
+            scaled_intrinsic[0,0] *= sx;  scaled_intrinsic[0,2] *= sx
+            scaled_intrinsic[1,1] *= sy;  scaled_intrinsic[1,2] *= sy
+            intrinsics.append(scaled_intrinsic)
+            extrinsics.append(extrinsic)
+         intrinsics = torch.stack(intrinsics, axis=0) # (T, 3, 3)
+         extrinsics = torch.stack(extrinsics, axis=0) # (T, 4, 4)
+         object_intrinsics.append(intrinsics)
+         object_extrinsics.append(extrinsics)
 
 
-      assert len(object_images) == len(object_depth_maps) == len(object_image_pairs) == self.length
+      assert (
+         len(object_images) == len(object_depth_maps) == len(object_image_pairs)
+         == len(object_intrinsics) == len(object_extrinsics) == self.length
+      )
       self.object_image_pairs = object_image_pairs
       self.object_images = object_images
       self.object_depth_maps = object_depth_maps
+      self.object_intrinsics = object_intrinsics
+      self.object_extrinsics = object_extrinsics
 
    def __len__(self):
       return self.length
    
    def __getitem__(self, object_index):
-      # grab everything for this object
-      images   = self.object_images[object_index]      # (T,3,H,W)
-      pairs    = self.object_image_pairs[object_index] # list of length T
-      Ks_all   = self.object_Ks_scaled[object_index]   # (T,3,3)
-      Rts_all  = self.object_extrinsics[object_index]  # (T,3,4)
+      # Features
+      images = self.object_images[object_index]
+      ## Select the reference image randomly
+      reference_image_id = random.randint(0, len(images))
+      ## Get context for the reference image
+      pairs = self.object_image_pairs[object_index]
+      
+      context_image_ids = pairs[reference_image_id][:self.context_size]
+      image_ids = [reference_image_id] + context_image_ids
+      ## Select the final set of images
+      images = images[image_ids]
 
-      T = images.shape[0]
-      # pick a valid ref index in [0..T-1]
-      ref_id = random.randint(0, T-1)
+      ## Get camera paramters for images
+      extrinsics = self.object_extrinsics[object_index][image_ids]
+      intrinsics = self.object_intrinsics[object_index][image_ids]
 
-      # reference + context images
-      ref_img = images[ref_id]                         # (3,H,W)
-      ctx_ids = pairs[ref_id][:self.context_size]      # up to context_size ints
-      # pad or truncate so we always have exactly context_size ids:
-      all_ctx = pairs[ref_id]
-      if len(all_ctx) < self.context_size:
-          all_ctx = all_ctx + [all_ctx[-1]] * (self.context_size - len(all_ctx))
-      else:
-          all_ctx = all_ctx[:self.context_size]
-      ctx_ids = all_ctx
-      ctx_imgs = [images[i] for i in ctx_ids]          # list of (3,H,W)
-      imgs = torch.stack([ref_img, *ctx_imgs], dim=0)  # (1+ctx,3,H,W)
-
-      # target depth
-      depth = self.object_depth_maps[object_index][ref_id]  # (1,H,W)
-
-      # corresponding cams
-      K_ref  = Ks_all[ref_id]       # (3,3)
-      K_src  = Ks_all[ctx_ids]      # (ctx,3,3)
-      Rt_ref = Rts_all[ref_id]      # (3,4)
-      Rt_src = Rts_all[ctx_ids]     # (ctx,3,4)
-
-      return imgs, depth, K_ref, K_src, Rt_ref, Rt_src
+      # Target
+      depth_map = self.object_depth_maps[object_index][reference_image_id]
+      return images, intrinsics, extrinsics, depth_map
    
    
    def collate_fn(self, batch: List[tuple]):
       # Extract batch of input images and batch of output depth maps separately
-      imgs, depths, K_refs, K_srcs, Rt_refs, Rt_srcs = zip(*batch)
-      # (B, T, 3, H, W)
-      b_imgs  = torch.stack(imgs,   dim=0)
-      # (B, 1, H, W)
-      b_depth = torch.stack(depths, dim=0)
-      # (B, 3, 3)
-      b_K_ref = torch.stack(K_refs, dim=0)
-      # pad each (ctx,3,3) up to max(ctx) in the batch → (B, ctx_max, 3, 3)
-      b_K_src = pad_sequence(K_srcs, batch_first=True, padding_value=0.0)
-      # (B, 3, 4)
-      b_Rt_ref = torch.stack(Rt_refs, dim=0)
-      # (B, ctx_max, 3, 4)
-      b_Rt_src = pad_sequence(Rt_srcs, batch_first=True, padding_value=0.0)
-      return b_imgs, b_depth, b_K_ref, b_K_src, b_Rt_ref, b_Rt_src
+      batch_images, batch_intrinsics, batch_extrinsics,  batch_depth_maps = list(zip(*batch))
+      batch_images = torch.stack(batch_images)
+      batch_intrinsics = torch.stack(batch_intrinsics)
+      batch_extrinsics = torch.stack(batch_extrinsics)
+      batch_depth_maps = torch.stack(batch_depth_maps)
+      return batch_images, batch_intrinsics, batch_extrinsics, batch_depth_maps
