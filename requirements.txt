@@ -140,3 +140,4 @@ webencodings==0.5.1
 wheel==0.45.1
 yarl==1.18.3
 open3d
+seaborn

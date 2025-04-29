@@ -37,15 +37,15 @@ def threshold_metric(pred, gt, mask, threshold=1.25):
 
 def rmse_log(pred, gt, mask):
     """ Root mean squared error of the log-transformed depths """
-    log_pred = torch.log(pred + 1e7)
-    log_gt = torch.log(gt + 1e7)
+    log_pred = torch.log(pred + 1e-7)
+    log_gt = torch.log(gt + 1e-7)
     sq_diff = (log_pred - log_gt) ** 2 * mask
     return torch.sqrt(torch.sum(sq_diff) / torch.sum(mask))
 
 def log10(pred, gt, mask):
     """ Mean absolute error in log10 space """
-    log10_pred = torch.log10(pred + 1e7)
-    log10_gt = torch.log10(gt + 1e7)
+    log10_pred = torch.log10(pred + 1e-7)
+    log10_gt = torch.log10(gt + 1e-7)
     abs_diff = torch.abs(log10_pred - log10_gt) * mask
     return torch.sum(abs_diff) / torch.sum(mask)
 
