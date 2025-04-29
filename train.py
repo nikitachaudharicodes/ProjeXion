@@ -1,6 +1,7 @@
 from multiprocessing import context
 import torch
 from losses import MaskedMSELoss
+from losses.masked_cauchy_loss import MaskedCauchyLoss
 from models import ResNet6, MVSNet
 from tqdm import tqdm
 from dataloaders import BlendedMVS
@@ -15,7 +16,7 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 CHECKPOINTS = Path('checkpoints')
 CHECKPOINTS.mkdir(parents=True, exist_ok=True)
 
-def main(data_path: str, subset: float, context_size: int, batch_size: int, model: str, epochs: int, lr: float, optimizer: str, scheduler: str):
+def main(data_path: str, subset: float, context_size: int, batch_size: int, model: str, loss:str, epochs: int, lr: float, optimizer: str, scheduler: str):
    # Model
    if model == 'cnn':
       model = ResNet6().to(DEVICE)
@@ -24,7 +25,11 @@ def main(data_path: str, subset: float, context_size: int, batch_size: int, mode
    else:
       error_msg = f"Model {model} is not a valid model name"
       raise ValueError(error_msg)
-   criterion = MaskedMSELoss()
+   
+   if loss == 'cauchy':
+      criterion = MaskedCauchyLoss(c=100)
+   else:   
+      criterion = MaskedMSELoss()
 
    # TODO: use function argument
    optimizer =  torch.optim.AdamW(model.parameters(), lr)
@@ -166,6 +171,7 @@ if __name__ == '__main__':
    parser.add_argument('context_size', type=int)
    parser.add_argument('batch_size', type=int)
    parser.add_argument('model', type=str)
+   parser.add_argument('loss', type=str)
    parser.add_argument('epochs', type=int)
    parser.add_argument('lr', type=float)
    parser.add_argument('optimizer', type=str)
@@ -176,7 +182,8 @@ if __name__ == '__main__':
       subset=args.subset,
       context_size=args.context_size,
       batch_size=args.batch_size, 
-      model=args.model, 
+      model=args.model,
+      loss=args.loss,
       epochs=args.epochs, 
       lr=args.lr, 
       optimizer=args.optimizer, 
