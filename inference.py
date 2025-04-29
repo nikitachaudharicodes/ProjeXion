@@ -15,7 +15,7 @@ def main():
    checkpoint = torch.load('checkpoints/best_model.pth')
    model.load_state_dict(checkpoint['model_state_dict'])
    data = BlendedMVS(
-      'data/dataset_low_res', height=640, width=640, subset=0.2, partition='test',
+      'data/dataset_low_res', height=320, width=320, subset=0.4, partition='test',
       context_size=4
    )
    dataloader = DataLoader(data, 6, shuffle=False, collate_fn=data.collate_fn)
