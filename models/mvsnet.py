@@ -3,6 +3,7 @@ from .sublayers import CNNBlock
 from .layers.feature_extraction import ImageEncoder
 from .layers.homografy import Homography
 from .layers.variance import VarianceLayer
+from .layers.self_attention import SelfAttentionLayer
 from .layers.cost_regularizer import CostRegularizer
 from .layers.soft_argmin import SoftArgmin
 from .layers.refinement import Refine
@@ -13,7 +14,8 @@ class MVSNet(torch.nn.Module):
       self.depths = torch.arange(0, 1.0001, 1 / n_depths)
       self.feature_extractor = ImageEncoder()
       self.homography = Homography(depths=self.depths)
-      self.variance = VarianceLayer()
+      # self.variance = VarianceLayer()
+      self.variance = SelfAttentionLayer()
       self.cost_regularizer = CostRegularizer(in_channels=32)
       self.soft_argmin = SoftArgmin()
       self.refinement = Refine()
