@@ -11,19 +11,41 @@ from argparse import ArgumentParser
 import numpy as np
 from pathlib import Path
 from torchvision.transforms.v2 import Resize
+import json
+
+from models.projeXion import ProjeXion
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-CHECKPOINTS = Path('checkpoints')
-CHECKPOINTS.mkdir(parents=True, exist_ok=True)
 
-def main(data_path: str, subset: float, context_size: int, batch_size: int, model: str, loss:str, epochs: int, lr: float, optimizer: str, scheduler: str):
+def main(
+      data_path: str,
+      subset: float,
+      context_size: int,
+      n_depths: int,
+      batch_size: int,
+      architecture: str,
+      loss: str,
+      epochs: int,
+      lr: float,
+      optimizer: str,
+      scheduler: str,
+      run_name: str,
+      img_height: int = 160,
+      img_width: int = 160,
+   ):
+
+   checkpoint_path = Path('checkpoints', run_name)
+   checkpoint_path.mkdir(parents=True, exist_ok=True)
+
    # Model
-   if model == 'cnn':
+   if architecture == 'cnn':
       model = ResNet6().to(DEVICE)
-   elif model == 'mvsnet':
-      model = MVSNet(25).to(DEVICE)
+   elif architecture == 'mvsnet':
+      model = MVSNet(n_depths).to(DEVICE)
+   elif architecture == 'projexion':
+      model = ProjeXion(n_depths).to(DEVICE)
    else:
-      error_msg = f"Model {model} is not a valid model name"
+      error_msg = f"Model {architecture} is not a valid model name"
       raise ValueError(error_msg)
    
    if loss == 'cauchy':
@@ -32,9 +54,11 @@ def main(data_path: str, subset: float, context_size: int, batch_size: int, mode
       criterion = MaskedMSELoss()
 
    # TODO: use function argument
+   optimizer_name = optimizer
    optimizer =  torch.optim.AdamW(model.parameters(), lr)
 
    # Scheduler
+   scheduler_name = scheduler
    if scheduler == 'ReduceLROnPlateu':
       scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
          optimizer=optimizer, mode='min', factor=0.1, patience=1
@@ -55,19 +79,19 @@ def main(data_path: str, subset: float, context_size: int, batch_size: int, mode
    # Train
    train_dataset = BlendedMVS(
       data_path=data_path, subset=subset, partition='train', context_size=context_size,
-      height=160, width=160
+      height=img_height, width=img_width
    )
    train_loader = DataLoader(
-      dataset=train_dataset, batch_size=batch_size, collate_fn=train_dataset.collate_fn
+      dataset=train_dataset, batch_size=batch_size, collate_fn=train_dataset.collate_fn, num_workers=2
    )
    print(f"Train dataset: {len(train_dataset)} objects | {len(train_loader)} batches")
    # Validation
    val_dataset = BlendedMVS(
-      data_path=data_path, subset=subset, partition='val',
-      height=160, width=160
+      data_path=data_path, subset=1, partition='val',
+      height=img_height, width=img_width
    )
    val_loader = DataLoader(
-      dataset=val_dataset, batch_size=batch_size, collate_fn=train_dataset.collate_fn
+      dataset=val_dataset, batch_size=batch_size, collate_fn=train_dataset.collate_fn, num_workers=2
    )
    print(f"Validation dataset: {len(val_dataset)} objects | {len(val_loader)} batches")
 
@@ -96,15 +120,31 @@ def main(data_path: str, subset: float, context_size: int, batch_size: int, mode
 
       if valid_loss <= best_valid_loss:
          best_valid_loss = valid_loss
-         save_model(model, optimizer, scheduler, best_valid_loss, valid_metrics, epoch, CHECKPOINTS / 'best_model.pth')
+         save_model(model, optimizer, scheduler, best_valid_loss, valid_metrics, epoch, checkpoint_path / 'best_model.pth')
          print("Saved best val model")
       train_losses.append(train_loss)
       val_losses.append(valid_loss)
 
-   save_model(model, optimizer, scheduler, best_valid_loss, valid_metrics, epoch, CHECKPOINTS / 'last_model.pth')
+   save_model(model, optimizer, scheduler, best_valid_loss, valid_metrics, epoch, checkpoint_path / 'last_model.pth')
+   config = {
+      'data_path': data_path, 
+      'subset': subset,
+      'context_size': context_size,
+      'n_depths': n_depths,
+      'batch_size': batch_size, 
+      'model': architecture,
+      'loss': loss,
+      'epochs': epochs, 
+      'lr': lr, 
+      'optimizer': optimizer_name,
+      'scheduler': scheduler_name,
+      'run_name': run_name,
+   }
+   save_config(config, path=checkpoint_path / 'config.json')
+   save_metrics(metrics=valid_metrics, path=checkpoint_path / 'metrics.json')
    print("Saved last model")
    
-   with (CHECKPOINTS / 'losses.txt').open('w') as f:
+   with (checkpoint_path / 'losses.txt').open('w') as f:
       f.write('train,valid\n')
       f.writelines([f'{train_loss:.4f},{val_loss:.4f}\n' for train_loss, val_loss in zip(train_losses, val_losses)])
 
@@ -168,11 +208,23 @@ def save_model(model, optimizer, scheduler, valid_loss, metrics, epoch, path: Pa
       path
    )
 
+def load_config(path: str):
+   return json.load(path)
+
+def save_config(config: dict, path: str):
+   with open(path, 'w') as file:
+      json.dump(config, file)
+
+def save_metrics(metrics: dict, path: str):
+   with open(path, 'w') as file:
+      json.dump(metrics, file)
+
 if __name__ == '__main__':
    parser = ArgumentParser()
    parser.add_argument('data_path', type=str)
    parser.add_argument('subset', type=float)
    parser.add_argument('context_size', type=int)
+   parser.add_argument('n_depths', type=int)
    parser.add_argument('batch_size', type=int)
    parser.add_argument('model', type=str)
    parser.add_argument('loss', type=str)
@@ -180,16 +232,19 @@ if __name__ == '__main__':
    parser.add_argument('lr', type=float)
    parser.add_argument('optimizer', type=str)
    parser.add_argument('scheduler', type=str)
+   parser.add_argument('run_name', type=str)
    args = parser.parse_args()
    main(
       data_path=args.data_path, 
       subset=args.subset,
       context_size=args.context_size,
+      n_depths=args.n_depths,
       batch_size=args.batch_size, 
-      model=args.model,
+      architecture=args.model,
       loss=args.loss,
       epochs=args.epochs, 
       lr=args.lr, 
       optimizer=args.optimizer, 
-      scheduler=args.scheduler
+      scheduler=args.scheduler,
+      run_name=args.run_name,
    )
