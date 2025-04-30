@@ -16,10 +16,7 @@ class SelfAttentionLayer(nn.Module):
     """
     def __init__(self):
         super(SelfAttentionLayer, self).__init__()
-        self.query_conv = nn.Conv3d(in_channels=1, out_channels=1, kernel_size=1)
-        self.key_conv = nn.Conv3d(in_channels=1, out_channels=1, kernel_size=1)
-        self.value_conv = nn.Identity()  # Identity to preserve the original values
-        self.gamma = nn.Parameter(torch.zeros(1))  # Learnable scaling parameter
+        self.gamma = nn.Parameter(torch.ones(1))  # Learnable scaling parameter
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
