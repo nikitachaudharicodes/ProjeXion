@@ -21,7 +21,7 @@ def main(data_path: str, subset: float, context_size: int, batch_size: int, mode
    if model == 'cnn':
       model = ResNet6().to(DEVICE)
    elif model == 'mvsnet':
-      model = MVSNet(20).to(DEVICE)
+      model = MVSNet(25).to(DEVICE)
    else:
       error_msg = f"Model {model} is not a valid model name"
       raise ValueError(error_msg)
@@ -49,6 +49,10 @@ def main(data_path: str, subset: float, context_size: int, batch_size: int, mode
       )
    scaler = torch.GradScaler(DEVICE)
 
+   # ==============================================================================================
+   # Data sets
+   # ==============================================================================================
+   # Train
    train_dataset = BlendedMVS(
       data_path=data_path, subset=subset, partition='train', context_size=context_size,
       height=160, width=160
@@ -57,6 +61,7 @@ def main(data_path: str, subset: float, context_size: int, batch_size: int, mode
       dataset=train_dataset, batch_size=batch_size, collate_fn=train_dataset.collate_fn
    )
    print(f"Train dataset: {len(train_dataset)} objects | {len(train_loader)} batches")
+   # Validation
    val_dataset = BlendedMVS(
       data_path=data_path, subset=subset, partition='val',
       height=160, width=160
@@ -102,7 +107,6 @@ def main(data_path: str, subset: float, context_size: int, batch_size: int, mode
    with (CHECKPOINTS / 'losses.txt').open('w') as f:
       f.write('train,valid\n')
       f.writelines([f'{train_loss:.4f},{val_loss:.4f}\n' for train_loss, val_loss in zip(train_losses, val_losses)])
-   
 
 
 def train_model(model, train_loader, criterion, optimizer, scaler):
