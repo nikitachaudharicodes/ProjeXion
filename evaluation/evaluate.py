@@ -123,7 +123,7 @@ def evaluate_model(model, val_loader, criterion):
     # Average metrics across batches
     if depth_metrics_total:
         avg_metrics = {
-            key: torch.tensor([m[key] for m in depth_metrics_total]).mean()
+            key: torch.tensor([m[key] for m in depth_metrics_total]).mean().item()
             for key in depth_metrics_total[0]
         }
     else:
